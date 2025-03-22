@@ -1,0 +1,22 @@
+{
+    "url": "https://github.com/FFmpeg/FFmpeg/archive/db69d06eeeab4f46da15030a80d539efb4503ca8.zip",
+    "strip_prefix": "ffmpeg-db69d06eeeab4f46da15030a80d539efb4503ca8",
+    "integrity": "sha256-djUBIkP5vliiHBlOUAdYN3K04960dv4SL/O6N3TLclU=",
+    "overlay": {
+        "BUILD.bazel": "sha256-gt1etfsKN1HvLTmii72TzArZLuF2N/MU52EOcEW+dGQ=",
+        "component_config.bzl": "sha256-Mol+WjOLbzDgq7xpRTdrpy8+/7PxRzZHyT3uIMprp2I=",
+        "component_defs.bzl": "sha256-bHmhLp5rESOTcmDRPCq2EuFYfIB3arYAq+NBqjDSZwk=",
+        "component_flags.bzl": "sha256-MgSJd4jnq3cl55nR8GCgXxyAV8cH3CDTefnNHs04ejs=",
+        "component_resolve.bzl": "sha256-uNPe8vRJlTrAkveA6EEzUWAW5+XkaG+RquMebug6mhg=",
+        "component_srcs.bzl": "sha256-85tLfmjSHfaYim1/xLyogsTwhRHDIp1uoCRSJCjosBY=",
+        "config.h.in": "sha256-yWlEsUCkvQehhlVM2+fz0+oGPOe82b6n1zWV0n5ucBY=",
+        "ffmpeg_config_checks.bzl": "sha256-+bjLHDGPo2PVDoUMmj71ANryURLWo61STzQsdCBMmaE=",
+        "libavcodec/tests/BUILD.bazel": "sha256-kXnyZt4/8XVtngp1QagTLsx4kNl7aM2u5DfOiQ7/79s=",
+        "libavfilter/tests/BUILD.bazel": "sha256-rBaMcG0snQA++Myyr099Wt/d/StIuIUU2LclPEbBDpc=",
+        "libavutil/avconfig.h.in": "sha256-pPuDq78TAJqdYUv//cLb6iJTussDX3YShlgepGwTtDs=",
+        "libavutil/ffversion.h.in": "sha256-jNAgkDw/UTrkMtgBLBl2JeShJ2aTKp2qLdno/4XYKos=",
+        "libavutil/tests/BUILD.bazel": "sha256-FjHXfE6MRoUxnP50LS9Wlqn9WZRRkJ/5sxbuqfEpapo=",
+        "libswscale/tests/BUILD.bazel": "sha256-3fFtuUdCtlZestGWAerDHHq5rayWY6GyQlpulveY7iQ=",
+        "tests/BUILD.bazel": "sha256-1YkTJ1Q2Q857AsUhcVccyBkelxFGOCN5ZWFrm5faqD8="
+    }
+}

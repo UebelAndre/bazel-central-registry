@@ -1,0 +1,43 @@
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//:component_flags.bzl", "BUILD_VARIANTS", "variant_prefix")
+
+_FFMPEG_TEST_COPTS = [
+    "-DHAVE_AV_CONFIG_H",
+    "-D_ISOC11_SOURCE",
+    "-D_FILE_OFFSET_BITS=64",
+    "-D_LARGEFILE_SOURCE",
+    "-std=c17",
+    "-Wno-error=implicit-function-declaration",
+] + select({
+    "@platforms//os:macos": ["-D_DARWIN_C_SOURCE"],
+    "//conditions:default": [],
+})
+
+[
+    cc_test(
+        name = variant_prefix(v) + src + "_test",
+        srcs = [src + ".c"],
+        copts = _FFMPEG_TEST_COPTS,
+        deps = ["//:{}avcodec".format(variant_prefix(v))],
+    )
+    for v in BUILD_VARIANTS
+    for src in [
+        "avpacket",
+        "codec_desc",
+    ]
+]
+
+[
+    cc_test(
+        name = variant_prefix(v) + src + "_test",
+        srcs = [src + ".c"],
+        additional_compiler_inputs = ["bitstream_template.c"],
+        copts = _FFMPEG_TEST_COPTS,
+        deps = ["//:{}avcodec".format(variant_prefix(v))],
+    )
+    for v in BUILD_VARIANTS
+    for src in [
+        "bitstream_be",
+        "bitstream_le",
+    ]
+]

@@ -1,0 +1,17 @@
+{
+  "homepage": "https://ffmpeg.org/",
+  "maintainers": [
+      {
+          "email": "26427366+UebelAndre@users.noreply.github.com",
+          "github": "UebelAndre",
+          "name": "UebelAndre"
+      }
+  ],
+  "repository": [
+    "github:ffmpeg/ffmpeg"
+  ],
+  "versions": [
+    "7.1.1"
+  ],
+  "yanked_versions": {}
+}

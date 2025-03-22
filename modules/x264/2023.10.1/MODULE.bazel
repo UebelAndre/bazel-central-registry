@@ -1,0 +1,17 @@
+"""https://www.videolan.org/developers/x264.html"""
+
+module(
+    name = "x264",
+    version = "2023.10.0",
+)
+
+bazel_dep(name = "bazel_skylib", version = "1.7.1")
+bazel_dep(name = "platforms", version = "0.0.11")
+bazel_dep(name = "rules_cc", version = "0.1.1")
+bazel_dep(name = "rules_nasm", version = "0.3.1")
+
+
+local_path_override(
+    module_name = "rules_nasm",
+    path = "../rules_nasm",
+)

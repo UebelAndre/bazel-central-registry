@@ -1,0 +1,9 @@
+{
+    "url": "https://github.com/FFmpeg/FFmpeg/archive/db69d06eeeab4f46da15030a80d539efb4503ca8.zip",
+    "strip_prefix": "ffmpeg-db69d06eeeab4f46da15030a80d539efb4503ca8",
+    "integrity": "",
+    "overlay": {
+        "BUILD.bazel": "sha256-9SaOV0p4Ir9YjNUtm3WcuxIaDcF4CruF3u5HVmZtDA0=",
+        "MODULE.bazel": "sha256-9t/BzJhTc1nGQY+wfyQkkQl+lrVPUgT37AFt5epRa1M="
+    }
+}

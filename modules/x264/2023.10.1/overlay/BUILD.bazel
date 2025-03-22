@@ -1,0 +1,181 @@
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_nasm//nasm:defs.bzl", "nasm_library")
+
+BIT_DEPTH = "10"
+
+write_file(
+    name = "x264_config_h",
+    out = "x264_config.h",
+    content = ["""\
+#define X264_GPL           1
+#define X264_INTERLACED    1
+#define X264_BIT_DEPTH     0
+#define X264_CHROMA_FORMAT 0
+#define X264_REV 3108
+#define X264_REV_DIFF 0
+#define X264_VERSION " r3108 31e19f9"
+#define X264_POINTVER "0.164.3108 31e19f9"
+"""],
+    newline = "unix",
+)
+
+write_file(
+    name = "config_h",
+    out = "config.h",
+    content = select({
+        "@platforms//cpu:aarch64": ["#define HAVE_AARCH64 1"],
+        "//conditions:default": [],
+    }) + ["""\
+#define HAVE_NEON 1
+    """] + select({
+        "@platforms//cpu:aarch64": ["#define ARCH_AARCH64 1"],
+        "//conditions:default": [],
+    }) + select({
+        "@platforms//os:macos": ["#define SYS_MACOSX 1"],
+        "@platforms//os:linux": ["#define SYS_LINUX 1"],
+        "//conditions:default": [],
+    }) + ["""\
+#define STACK_ALIGNMENT 16
+#define HAVE_POSIXTHREAD 1
+#define HAVE_THREAD 1
+#define HAVE_LOG2F 1
+#define HAVE_STRTOK_R 1
+#define HAVE_CLOCK_GETTIME 1
+#define HAVE_MMAP 1
+#define HAVE_AVS 1
+#define HAVE_VECTOREXT 1
+#define fseek fseeko
+#define ftell ftello
+#define HAVE_BITDEPTH8 1
+#define HAVE_BITDEPTH10 1
+#define HAVE_GPL 1
+#define HAVE_INTERLACED 1
+#define HAVE_OPENCL (BIT_DEPTH==8)
+#define HAVE_MALLOC_H 0
+#define HAVE_ALTIVEC 0
+#define HAVE_ALTIVEC_H 0
+#define HAVE_MMX 0
+#define HAVE_ARMV6 0
+#define HAVE_ARMV6T2 0
+#define HAVE_BEOSTHREAD 0
+#define HAVE_WIN32THREAD 0
+#define HAVE_SWSCALE 0
+#define HAVE_LAVF 0
+#define HAVE_FFMS 0
+#define HAVE_GPAC 0
+#define HAVE_CPU_COUNT 0
+#define HAVE_THP 0
+#define HAVE_LSMASH 0
+#define HAVE_X86_INLINE_ASM 0
+#define HAVE_AS_FUNC 0
+#define HAVE_INTEL_DISPATCHER 0
+#define HAVE_MSA 0
+#define HAVE_WINRT 0
+#define HAVE_VSX 0
+#define HAVE_ARM_INLINE_ASM 0
+"""],
+    newline = "unix",
+)
+
+COPTS = [
+    "-w",
+    "-DHIGH_BIT_DEPTH=1",
+    "-DBIT_DEPTH=" + BIT_DEPTH,
+    "-DPIC",
+] + select({
+    "@platforms//cpu:x86_64": [
+        "-DARCH_X86_64=1",
+    ],
+    "@platforms//cpu:aarch64": [
+    ],
+    "//conditions:default": [],
+}) + select({
+    "@platforms//os:linux": [
+        "-DSTACK_ALIGNMENT=64",
+    ],
+    "@platforms//os:macos": [
+        "-DPREFIX",
+        "-DSTACK_ALIGNMENT=16",
+    ],
+    "//conditions:default": [],
+})
+
+nasm_library(
+    name = "x86_asm",
+    srcs = glob(
+        include = [
+            "common/x86/*.asm",
+        ],
+        exclude = [
+            "common/x86/dct-64.asm",
+            "common/x86/intrapred8.asm",
+            "common/x86/intrapred8_allangs.asm",
+            "common/x86/ipfilter8.asm",
+            "common/x86/pixel-32.asm",
+            "common/x86/sad-a.asm",
+        ],
+    ),
+    hdrs = [
+        "common/x86/x86inc.asm",
+        "common/x86/x86util.asm",
+    ],
+    copts = COPTS,
+    tags = ["manual"],
+)
+
+cc_library(
+    name = "x264",
+    srcs = [
+        ":config.h",
+        ":x264_config.h",
+    ] + select({
+        "@platforms//cpu:x86_64": [":x86_asm"],
+        "//conditions:default": [],
+    }) + glob(
+        include = [
+            "common/*.h",
+            "common/*.c",
+            "encoder/*.h",
+            "encoder/*.c",
+        ],
+        exclude = [
+            "common/opencl.c",
+            "common/win32thread.c",
+            "encoder/rdo.c",
+            "encoder/slicetype.c",
+        ],
+    ) + select({
+        "@platforms//cpu:aarch64": glob([
+            "common/aarch64/*.c",
+        ]),
+        "@platforms//cpu:x86_64": glob([
+            "common/x86/*.c",
+        ]),
+        "//conditions:default": [],
+    }),
+    hdrs = ["x264.h"],
+    copts = COPTS,
+    includes = [
+        ".",
+        "common",
+        "encoder",
+    ],
+    linkstatic = 1,
+    textual_hdrs = [
+        "encoder/cabac.c",
+        "encoder/cavlc.c",
+        "encoder/rdo.c",
+        "encoder/slicetype.c",
+    ] + glob([
+        "common/aarch64/*.h",
+        "common/x86/*.h",
+    ]),
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "x264_isystem",
+    includes = ["."],
+    visibility = ["//visibility:public"],
+    deps = [":x264"],
+)

@@ -1,0 +1,11 @@
+"""https://www.videolan.org/developers/x265.html"""
+
+module(
+    name = "x265",
+    version = "4.1",
+)
+
+bazel_dep(name = "bazel_skylib", version = "1.7.1")
+bazel_dep(name = "platforms", version = "0.0.11")
+bazel_dep(name = "rules_cc", version = "0.1.1")
+bazel_dep(name = "rules_nasm", version = "0.1.0")

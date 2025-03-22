@@ -1,0 +1,32 @@
+"""https://ffmpeg.org/"""
+
+module(
+    name = "ffmpeg",
+    version = "7.1.1",
+)
+
+bazel_dep(name = "alsa_lib", version = "1.2.9")
+bazel_dep(name = "bazel_skylib", version = "1.7.1")
+bazel_dep(name = "bzip2", version = "1.0.8.bcr.2")
+bazel_dep(name = "openssl", version = "3.3.1.bcr.1")
+bazel_dep(name = "platforms", version = "0.0.11")
+bazel_dep(name = "rules_cc", version = "0.1.1")
+bazel_dep(name = "rules_nasm", version = "0.1.0")
+bazel_dep(name = "x264", version = "2023.10.1")
+bazel_dep(name = "x265", version = "4.1")
+bazel_dep(name = "zlib", version = "1.3.1.bcr.5")
+
+local_path_override(
+    module_name = "rules_nasm",
+    path = "../rules_nasm",
+)
+
+local_path_override(
+    module_name = "x265",
+    path = "../x265_git",
+)
+
+local_path_override(
+    module_name = "x264",
+    path = "../x264",
+)

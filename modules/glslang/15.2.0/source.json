@@ -1,0 +1,9 @@
+{
+    "url": "https://files.portaudio.com/archives/pa_stable_v190700_20210406.tgz",
+    "strip_prefix": "portaudio",
+    "integrity": "sha256-R++/Qsd8GaBdIuYn1Chz6ZHsDBNXIZwNdM5qKUjLLe8=",
+    "overlay": {
+        "BUILD.bazel": "sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=",
+        "MODULE.bazel": "sha256-OnS3WFRtZ2N3x9KIGisD8HylC64Sqv0qW2A2mdJ+3qg="
+    }
+}

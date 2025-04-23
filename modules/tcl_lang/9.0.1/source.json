@@ -1,0 +1,8 @@
+{
+    "url": "https://prdownloads.sourceforge.net/tcl/tcl9.0.1-src.tar.gz",
+    "integrity": "sha256-ikaqX50KofxS7rP/V61Ykfvx7VDDwQAUhuuK7QU6seU=",
+    "overlay": {
+        "BUILD.bazel": "sha256-mnETSkYu9jXAEWijyniMQvqvVfVdHusm+wwwWi1AzD4=",
+        "MODULE.bazel": "sha256-Yez4AP2w9CpYa5fdVU+n8qYnqyAzhgAM1hGbaT3MxpA="
+    }
+}

@@ -1,0 +1,8 @@
+{
+    "url": "https://prdownloads.sourceforge.net/tcl/tcl8.6.16-src.tar.gz",
+    "integrity": "sha256-S/yVi4dFztfVBLp/ytQ2maUDPm2NZej31cUo1e3BqPY=",
+    "overlay": {
+        "BUILD.bazel": "sha256-046oNtzlg+NW34MzBcGo+BybwktuKK9SqWcb1wgjqp8=",
+        "MODULE.bazel": "sha256-pOyMoE37ki1MhthQLS7ViLuxQSenITF71mPDeDa7lns="
+    }
+}

@@ -1,0 +1,19 @@
+{
+    "homepage": "https://github.com/opendtrace/opendtrace",
+    "maintainers": [
+        {
+            "email": "26427366+UebelAndre@users.noreply.github.com",
+            "github": "UebelAndre",
+            "github_user_id": 26427366,
+            "name": "UebelAndre"
+        }
+    ],
+    "repository": [
+        "github:opendtrace/opendtrace",
+        "github.com:microsoft/DTrace-on-Windows"
+    ],
+    "versions": [
+        "0.0.0-20240218"
+    ],
+    "yanked_versions": {}
+}

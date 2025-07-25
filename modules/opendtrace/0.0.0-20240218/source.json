@@ -1,0 +1,9 @@
+{
+    "url": "https://github.com/microsoft/DTrace-on-Windows/archive/d394cf0f5bbcde8cae9801f73ec5eaef031dddad.zip",
+    "integrity": "sha256-2Ro1929pWoK4PFiAHj6KNpTYd+QjvtV6lJkTwgwNB6c=",
+    "strip_prefix": "DTrace-on-Windows-d394cf0f5bbcde8cae9801f73ec5eaef031dddad",
+    "overlay": {
+        "BUILD.bazel": "sha256-0mL/cvKmtBkLA722+ySlCae63SbPlqmCIQaQAaTZMgs=",
+        "MODULE.bazel": "sha256-W/44Zkiyjez9n99JkM2OjqeisZ3ulsbfkDa9AJ9uOPE="
+    }
+}

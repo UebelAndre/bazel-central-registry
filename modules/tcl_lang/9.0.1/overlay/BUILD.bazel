@@ -81,12 +81,12 @@ filegroup(
     }),
 )
 
-genrule(
-    name = "tclDTrace",
-    srcs = ["generic/tclDTrace.d"],
-    outs = ["tclDTrace.h"],
-    cmd = "dtrace -h -o $@ -s $(execpath :generic/tclDTrace.d)",
-)
+# genrule(
+#     name = "tclDTrace",
+#     srcs = ["generic/tclDTrace.d"],
+#     outs = ["tclDTrace.h"],
+#     cmd = "dtrace -h -o $@ -s $(execpath :generic/tclDTrace.d)",
+# )
 
 filegroup(
     name = "all_headers",
@@ -103,7 +103,7 @@ filegroup(
         "generic/tclTomMath.decls",
         "generic/tclUniData.c",
         ":tclConfig",
-        ":tclDTrace",
+        # ":tclDTrace",
     ],
 )
 

@@ -440,7 +440,7 @@
 /* #undef USEGETWD */
 
 /* Are we building with DTrace support? */
-/* #undef USE_DTRACE */
+#undef USE_DTRACE
 
 /* Should we use FIONBIO? */
 /* #undef USE_FIONBIO */

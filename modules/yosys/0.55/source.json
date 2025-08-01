@@ -1,0 +1,8 @@
+{
+    "url": "https://github.com/YosysHQ/yosys/releases/download/v0.55/yosys.tar.gz",
+    "integrity": "sha256-fbur81oIcyEEdopD+BQ+DHcUsBp/6XjARM8N8vj+lhw=",
+    "overlay": {
+        "BUILD.bazel": "sha256-NeNMkjsL4s2QvGg+c24DrD6+BPjmKQD2LraPJ6OrUzw=",
+        "MODULE.bazel": "sha256-Oxjr4wbSjyaoyx95KomEknPv9V47FM5EVKW5xcmIZWA="
+    }
+}

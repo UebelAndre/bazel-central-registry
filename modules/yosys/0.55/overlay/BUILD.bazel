@@ -52,6 +52,9 @@ def main() -> None:
                 byte = in_file.read(1)
 
         out_file.write("0};\n")
+
+if __name__ == "__main__":
+    main()
 """.splitlines(),
     newline = "unix",
 )

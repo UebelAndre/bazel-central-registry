@@ -1,0 +1,14 @@
+{
+    "url": "https://ftp.gnu.org/gnu/bison/bison-3.3.2.tar.xz",
+    "integrity": "sha256-A57kW2HZXlAD5+g3b5CAABtAZv81e94nG3+qzlO52AQ=",
+    "overlay": {
+        "BUILD.bazel": "sha256-R8qWRiS20qtS/3rRnUWon3x/ke+TaIp6eqtxjqU0Ysg=",
+        "MODULE.bazel": "sha256-To9Dorl6GtzNyoKbwX0aSysRZ/9QYlBKoma+tokIf58=",
+        "bin/BUILD.bazel": "sha256-q1l2e7E6F3cZDpMCo7tiaFhCl81qJdP0HYHYm7U1I8k=",
+        "gnulib/BUILD.bazel": "sha256-2hGUxKh1DqOFZnT+Fto51DhmPYAev7qzy41kXBZ6xeA=",
+        "src/bison_runfiles.cc": "sha256-aYM5pdk1+0eI6VUGSfJ3R+hlqRYQZXlrnglOq4LjmzE="
+    },
+    "patches": {
+        "bison_runfiles.patch": "sha256-y4JAUrWMXpWS2TCh/KuKXw7L1So0vDUhmYAYist6Q4E="
+    }
+}

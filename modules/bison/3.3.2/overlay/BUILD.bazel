@@ -1,0 +1,83 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+filegroup(
+    name = "bison_data",
+    srcs = glob(["data/**/*"]),
+    visibility = ["//bin:__pkg__"],
+)
+
+cc_library(
+    name = "timevar_def",
+    textual_hdrs = ["lib/timevar.def"],
+    visibility = ["//gnulib:__pkg__"],
+)
+
+BISON_SCANNER_SRCS = glob(
+    ["src/scan-*.c"],
+    exclude = ["src/scan-*-c.c"],
+)
+
+BISON_SRC_SRCS = glob(
+    [
+        "src/*.c",
+        "src/*.h",
+    ],
+    exclude = BISON_SCANNER_SRCS,
+)
+
+BISON_LIB_SRCS = glob(["bison-lib/*"])
+
+config_setting(
+    name = "cc_compiler_clang",
+    flag_values = {"@bazel_tools//tools/cpp:compiler": "clang"},
+    visibility = ["//:__subpackages__"],
+)
+
+config_setting(
+    name = "cc_compiler_gcc",
+    flag_values = {"@bazel_tools//tools/cpp:compiler": "gcc"},
+    visibility = ["//:__subpackages__"],
+)
+
+config_setting(
+    name = "cc_compiler_msvc",
+    flag_values = {"@bazel_tools//tools/cpp:compiler": "msvc-cl"},
+    visibility = ["//:__subpackages__"],
+)
+
+BISON_COPTS = select({
+    ":cc_compiler_clang": [
+        "-std=c99",
+        "-Wno-unused-but-set-variable",
+    ],
+    ":cc_compiler_gcc": ["-std=c99"],
+    ":cc_compiler_msvc": [
+        # C4116: unnamed type definition in parentheses
+        "/wd4116",
+    ],
+    "//conditions:default": [],
+})
+
+cc_library(
+    name = "bison_bazel_runfiles",
+    srcs = ["src/bazel_runfiles.cc"],
+    deps = ["@rules_cc//cc/runfiles"],
+)
+
+cc_library(
+    name = "bison_lib",
+    srcs = BISON_SRC_SRCS + BISON_LIB_SRCS,
+    copts = BISON_COPTS + [],
+    includes = [
+        ".",
+        "bison-lib",
+    ],
+    strip_include_prefix = "bison-lib",
+    textual_hdrs = BISON_SCANNER_SRCS,
+    visibility = ["//bin:__pkg__"],
+    deps = [
+        ":bison_bazel_runfiles",
+        "//gnulib",
+        "//gnulib:config_h",
+    ],
+)

@@ -1,0 +1,11 @@
+{
+    "url": "https://github.com/westes/flex/releases/download/v2.6.4/flex-2.6.4.tar.gz",
+    "integrity": "sha256-6HquAyvwfCb4WsDtMlCZjDdiHZX4vXSLMfFbM8Re6ZU=",
+    "patches": {
+        "hardcode_int_max_log10.patch": "sha256-98tFxCG8MxDFfdRZ8hZWMKmQcP2hahM/EwJ3YGUTxdg="
+    },
+    "overlay": {
+        "BUILD.bazel": "sha256-/Pyrf3HDT7uckn9LK3S4wobF9Da+DDCuXceN22NsvhU=",
+        "MODULE.bazel": "sha256-nT6M7FBsfIzBtCzL69SWsbRoBgE7WMHxKKywWanIINM="
+    }
+}

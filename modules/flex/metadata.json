@@ -1,5 +1,5 @@
 {
-    "homepage": "https://github.com/berkeley-abc/abc",
+    "homepage": "https://github.com/westes/flex",
     "maintainers": [
         {
             "email": "26427366+UebelAndre@users.noreply.github.com",
@@ -9,13 +9,10 @@
         }
     ],
     "repository": [
-        "github:berkeley-abc/abc",
-        "github:YosysHQ/abc"
+        "github:westes/flex"
     ],
     "versions": [
-        "0.0.0-20250408-yosyshq",
-        "0.0.0-20250408-yosyshq.bcr.1",
-        "0.0.0-20250903-yosyshq"
+        "2.6.4"
     ],
     "yanked_versions": {}
 }

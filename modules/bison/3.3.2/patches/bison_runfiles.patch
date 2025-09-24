@@ -1,0 +1,44 @@
+diff --git a/lib/main.c b/lib/main.c
+index f183119..f23bf67 100644
+--- a/lib/main.c
++++ b/lib/main.c
+@@ -26,6 +26,8 @@ int yyparse (void);
+ int
+ main (void)
+ {
++  void bazel_runfiles_init(const char *argv0);
++  bazel_runfiles_init(argv[0]);
+   setlocale (LC_ALL, "");
+   return yyparse ();
+ }
+diff --git a/src/output.c b/src/output.c
+index 6e4fc59..9fa9b57 100644
+--- a/src/output.c
++++ b/src/output.c
+@@ -566,7 +566,12 @@ static void
+ output_skeleton (void)
+ {
+   /* Compute the names of the package data dir and skeleton files.  */
+-  char const *m4 = (m4 = getenv ("M4")) ? m4 : M4;
++  char *bazel_runfiles_m4();
++  static char *bazel_m4_p = NULL;
++  if (bazel_m4_p == NULL) {
++    bazel_m4_p = bazel_runfiles_m4();
++  }
++  char const *m4 = bazel_m4_p? bazel_m4_p : (m4 = getenv ("M4")) ? m4 : M4;
+   char const *datadir = pkgdatadir ();
+   char *skeldir = xpath_join (datadir, "skeletons");
+   char *m4sugar = xpath_join (datadir, "m4sugar/m4sugar.m4");
+@@ -747,6 +752,12 @@ pkgdatadir (void)
+     return relocate_buffer;
+   else
+     {
++      char *bazel_runfiles_bison_pkgdatadir();
++      static char *bazel_pkgdatadir_p = NULL;
++      if (bazel_pkgdatadir_p == NULL) {
++        bazel_pkgdatadir_p = bazel_runfiles_bison_pkgdatadir();
++      }
++      if (bazel_pkgdatadir_p != NULL) { return bazel_pkgdatadir_p; }
+       char const *cp = getenv ("BISON_PKGDATADIR");
+       return cp ? cp : relocate2 (PKGDATADIR, &relocate_buffer);
+     }

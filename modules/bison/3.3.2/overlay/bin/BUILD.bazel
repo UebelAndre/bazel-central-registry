@@ -1,0 +1,25 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+
+filegroup(
+    name = "bison_runfiles",
+    srcs = [
+        "//:bison_data",
+        "@rules_m4//m4:current_m4_toolchain",
+    ],
+)
+
+BISON_LINKOPTS = select({
+    "//:cc_compiler_msvc": [
+        # LNK4001: no object files specified; libraries used
+        "/IGNORE:4001",
+    ],
+    "//conditions:default": [],
+})
+
+cc_binary(
+    name = "bison",
+    data = [":bison_runfiles"],
+    linkopts = BISON_LINKOPTS + [],
+    visibility = ["//visibility:public"],
+    deps = ["//:bison_lib"],
+)

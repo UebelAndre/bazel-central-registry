@@ -1,463 +1,983 @@
-load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
-load("@rules_cc//cc:cc_library.bzl", "cc_library")
-load("@rules_nasm//nasm:defs.bzl", "nasm_library")
-load("@bazel_skylib//rules:write_file.bzl", "write_file")
+"""FFmpeg build file for Bazel - Generated from Makefiles."""
 
-_GENERATED_FILES = [
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "objc_library")
+load(":ffmpeg_utils.bzl", "ffmpeg_library")
+
+package(default_visibility = ["//visibility:public"])
+
+# Export config headers
+exports_files([
     "config.h",
     "config_components.h",
-    "libavcodec/bsf_list.c",
-    "libavcodec/codec_list.c",
-    "libavcodec/parser_list.c",
-    "libavdevice/indev_list.c",
-    "libavdevice/outdev_list.c",
-    "libavfilter/filter_list.c",
-    "libavformat/demuxer_list.c",
-    "libavformat/muxer_list.c",
-    "libavformat/protocol_list.c",
-    "libavutil/avconfig.h",
-    "libavutil/ffversion.h",
-]
+])
 
-_DOT_VERSIONS = [
-    "libavutil/libavutil.version",
-    "libswresample/libswresample.version",
-    "libswscale/libswscale.version",
-    ".version",
-    "libavcodec/libavcodec.version",
-    "libavdevice/libavdevice.version",
-    "libavfilter/libavfilter.version",
-    "libavformat/libavformat.version",
-]
+# ============================================================================
+# libavutil - Core utility library (from libavutil/Makefile)
+# ============================================================================
 
-CC_COPTS = [
-    "-Wno-macro-redefined",
-    "-DHAVE_NASM=1",
-    "-DPIC",
-    "-fno-math-errno",
-    "-fno-signed-zeros",
-    "-include ffmpeg/config.h",
+# Base OBJS from libavutil/Makefile lines 110-201
+AVUTIL_SRCS = [
+    "libavutil/adler32.c",
+    "libavutil/aes.c",
+    "libavutil/aes_ctr.c",
+    "libavutil/ambient_viewing_environment.c",
+    "libavutil/audio_fifo.c",
+    "libavutil/avstring.c",
+    "libavutil/avsscanf.c",
+    "libavutil/base64.c",
+    "libavutil/blowfish.c",
+    "libavutil/bprint.c",
+    "libavutil/buffer.c",
+    "libavutil/cast5.c",
+    "libavutil/camellia.c",
+    "libavutil/channel_layout.c",
+    "libavutil/container_fifo.c",
+    "libavutil/cpu.c",
+    "libavutil/crc.c",
+    "libavutil/csp.c",
+    "libavutil/des.c",
+    "libavutil/detection_bbox.c",
+    "libavutil/dict.c",
+    "libavutil/display.c",
+    "libavutil/dovi_meta.c",
+    "libavutil/downmix_info.c",
+    "libavutil/encryption_info.c",
+    "libavutil/error.c",
+    "libavutil/eval.c",
+    "libavutil/executor.c",
+    "libavutil/fifo.c",
+    "libavutil/file.c",
+    "libavutil/file_open.c",
+    "libavutil/film_grain_params.c",
+    "libavutil/fixed_dsp.c",
+    "libavutil/float_dsp.c",
+    "libavutil/float2half.c",
+    "libavutil/frame.c",
+    "libavutil/half2float.c",
+    "libavutil/hash.c",
+    "libavutil/hdr_dynamic_metadata.c",
+    "libavutil/hdr_dynamic_vivid_metadata.c",
+    "libavutil/hmac.c",
+    "libavutil/hwcontext.c",
+    "libavutil/hwcontext_stub.c",  # OBJS-$(!CONFIG_VULKAN)
+    "libavutil/iamf.c",
+    "libavutil/imgutils.c",
+    "libavutil/integer.c",
+    "libavutil/intmath.c",
+    "libavutil/lfg.c",
+    "libavutil/lls.c",
+    "libavutil/log.c",
+    "libavutil/log2_tab.c",
+    "libavutil/lzo.c",
+    "libavutil/mathematics.c",
+    "libavutil/mastering_display_metadata.c",
+    "libavutil/md5.c",
+    "libavutil/mem.c",
+    "libavutil/murmur3.c",
+    "libavutil/opt.c",
+    "libavutil/parseutils.c",
+    "libavutil/pixdesc.c",
+    "libavutil/pixelutils.c",
+    "libavutil/random_seed.c",
+    "libavutil/rational.c",
+    "libavutil/rc4.c",
+    "libavutil/refstruct.c",
+    "libavutil/reverse.c",
+    "libavutil/ripemd.c",
+    "libavutil/samplefmt.c",
+    "libavutil/sha.c",
+    "libavutil/sha512.c",
+    "libavutil/side_data.c",
+    "libavutil/slicethread.c",
+    "libavutil/spherical.c",
+    "libavutil/stereo3d.c",
+    "libavutil/tea.c",
+    "libavutil/threadmessage.c",
+    "libavutil/time.c",
+    "libavutil/timecode.c",
+    "libavutil/timecode_internal.c",
+    "libavutil/timestamp.c",
+    "libavutil/tree.c",
+    "libavutil/twofish.c",
+    "libavutil/tx.c",
+    "libavutil/tx_double.c",
+    "libavutil/tx_float.c",
+    "libavutil/tx_int32.c",
+    "libavutil/utils.c",
+    "libavutil/uuid.c",
+    "libavutil/version.c",
+    "libavutil/video_enc_params.c",
+    "libavutil/video_hint.c",
+    "libavutil/xga_font_data.c",
+    "libavutil/xtea.c",
+    # Architecture-specific (from libavutil/aarch64/Makefile)
+    "libavutil/aarch64/cpu.c",
+    "libavutil/aarch64/float_dsp_init.c",
+    "libavutil/aarch64/tx_float_init.c",
 ] + select({
-    "@platforms//os:macos": [
-        # yikes! but i want to supress these since i am on the application side.
-        # and while i could just disable everything, i also like lists...
-        "-Wno-absolute-value",
-        "-Wno-dangling-else",
-        "-Wno-deprecated-declarations",
-        "-Wno-incompatible-pointer-types-discards-qualifiers",
-        "-Wno-logical-op-parentheses",
-        "-Wno-missing-braces",
-        "-Wno-parentheses",
-        "-Wno-pointer-bool-conversion",
-        "-Wno-pointer-sign",
-        "-Wno-shift-op-parentheses",
-        "-Wno-sometimes-uninitialized",
-        "-Wno-switch",
-        "-Wno-tautological-compare",
-        "-Wno-undefined-internal",
-        "-Wno-unneeded-internal-declaration",
-        "-Wno-unused-function",
-        "-Wno-unused-const-variable",
-    ],
+    "@platforms//os:macos": ["libavutil/hwcontext_videotoolbox.c"],
     "//conditions:default": [],
 })
 
-CC_LINKOPTS = select({
-    "@platforms//os:macos": [
-        "-framework QuartzCore",
-        "-framework QuartzCore",
-        "-framework AppKit",
-        "-framework OpenGL",
-        "-framework QuartzCore",
-        "-framework AppKit",
-        "-framework OpenGL",
-        "-framework CoreVideo",
-        "-framework Foundation",
-        "-framework AVFoundation",
-        "-framework CoreMedia",
-        "-framework CoreFoundation",
-        "-framework VideoToolbox",
-        "-framework CoreMedia",
-        "-framework CoreVideo",
-        "-framework CoreFoundation",
-        "-framework AudioToolbox",
-        "-framework CoreMedia",
-        "-framework VideoDecodeAcceleration",
-        "-framework CoreFoundation",
-        "-framework QuartzCore",
-        "-framework CoreFoundation",
-        "-framework Security",
-        "-framework CoreGraphics",
-    ],
-    "//conditions:default": [],
-})
+# NEON assembly files for ARM64 (from libavutil/aarch64/Makefile NEON-OBJS)
+AVUTIL_ASM_SRCS = [
+    "libavutil/aarch64/float_dsp_neon.S",
+    "libavutil/aarch64/tx_float_neon.S",
+    "libavutil/aarch64/cpu_sve.S",  # SVE-OBJS
+]
 
-NASM_COPTS = select({
-    "@platforms//os:macos": ["-DPREFIX"],
-    "//conditions:default": [],
-}) + ["-DPIC"]
+AVUTIL_HDRS = glob([
+    "libavutil/*.h",
+    "libavutil/aarch64/*.h",
+    "compat/**/*.h",  # compat headers
+]) + [
+    "libavutil/aarch64/asm.S",  # asm.S is included by other .S files
+]
 
-cc_library(
-    name = "avutil_linux_deps",
-    linkopts = [
-        "-lva",
-        "-lva-drm",
-        "-lva-x11",
-        "-lvdpau",
-        "-lX11",
-    ],
-    deps = ["@alsa_lib//:asound"],
-)
-
-cc_library(
+ffmpeg_library(
     name = "avutil",
-    srcs = [
-        ":libavutil/avconfig.h",
-        ":avutil_c",
+    srcs = AVUTIL_SRCS,
+    hdrs = AVUTIL_HDRS + [
+        "config.h",
+        "config_components.h",
+    ] + glob(["libavcodec/*.h"]),  # hdr_dynamic_metadata.c needs libavcodec headers
+    asm_srcs = AVUTIL_ASM_SRCS,
+    copts = [
+        "-DHAVE_AV_CONFIG_H",
     ],
-    hdrs = glob([
-        "compat/*.h",
-        "compat/*/*.h",
-    ]),
-    copts = CC_COPTS,
-    textual_hdrs = [
-        ":config.h",
-        "libavutil/file_open.c",
-        "libavutil/log2_tab.c",
-        "libavutil/reverse.c",
-    ] + glob([
-        "libavcodec/*.h",
-        "libavcodec/x86/*.h",
-        "libavutil/*.h",
-        "libavutil/aarch64/*.h",
-        "libavutil/mips/*.h",
-        # "libavutil/mips/*_template.c",
-        "libavutil/ppc/*.h",
-        "libavutil/x86/*.h",
-    ]),
-    visibility = ["//visibility:public"],
-    deps = [
-        ":config.h",
-    ] + select({
-        "@platforms//os:linux": [":avutil_linux_deps"],
-        "//conditions:default": [],
+    local_defines = [
+        "_ISOC11_SOURCE",
+        "_POSIX_C_SOURCE=200112",
+        "_XOPEN_SOURCE=600",
+    ],
+    includes = [
+        "libavutil",
+        "libavutil/aarch64",  # For asm.S includes
+        "libavcodec",
+        "compat",  # For compat headers like va_copy.h
+        "compat/stdbit",  # For stdbit.h
+    ],
+    linkopts = select({
+        "@platforms//os:macos": [
+            "-framework CoreFoundation",
+            "-framework CoreVideo",
+            "-framework VideoToolbox",
+            "-lm",
+            "-lpthread",
+        ],
+        "//conditions:default": [
+            "-lm",
+            "-lpthread",
+        ],
     }),
-)
-
-
-CONFIG = {}
-
-filegroup(
-    name = "ffmpeg_c",
-    srcs = [
-               "fftools/ffmpeg.c",
-               "fftools/ffmpeg.h",
-               "fftools/ffmpeg_filter.c",
-               "fftools/ffmpeg_hw.c",
-               "fftools/ffmpeg_opt.c",
-           ] + (
-               ["fftools/ffmpeg_cuvid.c"] if CONFIG.get("CONFIG_CUVID", False) else []
-           ) +
-           (
-               ["fftools/ffmpeg_qsv.c"] if CONFIG.get("CONFIG_LIBMFX", False) else []
-           ) +
-           (
-               ["fftools/ffmpeg_videotoolbox.c"] if CONFIG.get("CONFIG_VIDEOTOOLBOX", False) else []
-           ),
-)
-
-cc_library(
-    name = "cmdutils",
-    srcs = ["fftools/cmdutils.c"],
-    hdrs = ["fftools/cmdutils.h"],
-    copts = CC_COPTS,
-    linkopts = CC_LINKOPTS,
     deps = [
-        ":avcodec",
-        ":avdevice",
-        ":avfilter",
-        ":avformat",
-        ":avutil",
-        ":config_h",
-        ":postproc",
-    ],
-)
-
-cc_binary(
-    name = "ffmpeg",
-    srcs = [":ffmpeg_c"],
-    copts = CC_COPTS,
-    linkopts = CC_LINKOPTS,
-    deps = [
-        ":avcodec",
-        ":avdevice",
-        ":avfilter",
-        ":avformat",
-        ":cmdutils",
-        ":swresample",
-        ":swscale",
-    ],
-)
-
-cc_library(
-    name = "avcodec",
-    srcs = glob([
-        "libavcodec/*.h",
-        "libavcodec/mips/*.h",
-        "libavcodec/x86/*.h",
-        "libavfilter/*.h",
-        "libavformat/*.h",
-        "libswresample/*.h",
-    ]) + [
-        ":avcodec_asm_objs",
-        ":avcodec_c",
-    ],
-    hdrs = [":avcodec_h"],
-    copts = CC_COPTS + [
-        "-include ffmpeg/libavutil/internal.h",
-        "-include ffmpeg/libavutil/intmath.h",
-    ],
-    linkopts = CC_LINKOPTS + [
-    ] + select({
-        "@platforms//os:macos": ["-liconv"],
-        "//conditions:default": [],
-    }),
-    textual_hdrs = glob([
-        "libavcodec/*_template.c",
-        "libavcodec/x86/*_template.c",
-    ]) + [
-        "libavcodec/aacps.c",
-        "libavcodec/aacpsdata.c",
-        "libavcodec/bitstream.c",
-        "libavcodec/bsf_list.c",
-        "libavcodec/ac3dec.c",
-        "libavcodec/eac3dec.c",
-        "libavcodec/golomb.c",
-        "libavcodec/mathtables.c",
-        "libavcodec/x86/h264_cabac.c",
-    ],
-    visibility = ["//visibility:public"],
-    deps = [
-        ":avutil",
-        ":config_h",
-        ":swresample",
-        "@x264",
-        "@x264//:x264_isystem",
-        "@x265",
-        "@x265//:x265_isystem",
+        "@bzip2//:bz2",
         "@zlib",
     ],
 )
 
-nasm_library(
-    name = "avcodec_asm_objs",
-    srcs = [":avcodec_asm"],
-    copts = NASM_COPTS,
-    preincs = ["config.asm"],
-    # deps = glob(["libavcodec/**/*_template.asm"]) + [
-    #     "config.asm",
-    #     ":avutil_asm_inc",
-    # ],
+# ============================================================================
+# libswresample - Audio resampling library (from libswresample/Makefile)
+# ============================================================================
+
+SWRESAMPLE_SRCS = [
+    "libswresample/audioconvert.c",
+    "libswresample/dither.c",
+    "libswresample/options.c",
+    "libswresample/rematrix.c",
+    "libswresample/resample.c",
+    "libswresample/resample_dsp.c",
+    "libswresample/swresample.c",
+    "libswresample/swresample_frame.c",
+    "libswresample/version.c",
+]
+
+SWRESAMPLE_HDRS = glob(["libswresample/*.h"])
+
+ffmpeg_library(
+    name = "swresample",
+    srcs = SWRESAMPLE_SRCS,
+    hdrs = SWRESAMPLE_HDRS + [
+        "config.h",
+        "config_components.h",
+    ],
+    copts = [
+        "-DHAVE_AV_CONFIG_H",
+        "-D_POSIX_C_SOURCE=200112",
+        "-D_XOPEN_SOURCE=600",
+    ],
+    includes = ["libswresample"],
+    deps = [":avutil"],
 )
 
-cc_library(
-    name = "avdevice",
-    srcs = glob([
-        "libavdevice/*.h",
-        "libavfilter/*.h",
-        "libavformat/*.h",
-    ]) + [
-        ":avdevice_c",
+# ============================================================================
+# libswscale - Video scaling library (from libswscale/Makefile)
+# ============================================================================
+
+SWSCALE_SRCS = [
+    "libswscale/alphablend.c",
+    "libswscale/cms.c",
+    "libswscale/csputils.c",
+    "libswscale/format.c",
+    "libswscale/gamma.c",
+    "libswscale/graph.c",
+    "libswscale/hscale.c",
+    "libswscale/hscale_fast_bilinear.c",
+    "libswscale/input.c",
+    "libswscale/lut3d.c",
+    "libswscale/options.c",
+    "libswscale/output.c",
+    "libswscale/rgb2rgb.c",
+    "libswscale/slice.c",
+    "libswscale/swscale.c",
+    "libswscale/swscale_unscaled.c",
+    "libswscale/utils.c",
+    "libswscale/version.c",
+    "libswscale/vscale.c",
+    "libswscale/yuv2rgb.c",
+]
+
+SWSCALE_HDRS = glob(["libswscale/*.h"])
+
+ffmpeg_library(
+    name = "swscale",
+    srcs = SWSCALE_SRCS,
+    hdrs = SWSCALE_HDRS + [
+        "config.h",
+        "config_components.h",
     ],
-    hdrs = [":avdevice_h"],
-    copts = CC_COPTS + [
-        "-include ffmpeg/libavutil/internal.h",
+    copts = [
+        "-DHAVE_AV_CONFIG_H",
+        "-D_POSIX_C_SOURCE=200112",
+        "-D_XOPEN_SOURCE=600",
     ],
-    linkopts = CC_LINKOPTS + select({
-        "@platforms//os:linux": [
-            "-lxcb",
-            "-lxcb-shape",
-            "-lxcb-shm",
-            "-lxcb-xfixes",
-        ],
-        "@platforms//os:macos": [],
-    }),
-    visibility = ["//visibility:public"],
+    includes = ["libswscale"],
+    deps = [":avutil"],
+)
+
+# ============================================================================
+# libpostproc - Post-processing library (from libpostproc/Makefile)
+# ============================================================================
+
+POSTPROC_SRCS = [
+    "libpostproc/postprocess.c",
+    "libpostproc/version.c",
+]
+
+POSTPROC_HDRS = glob([
+    "libpostproc/*.h",
+    "libpostproc/*_template.c",  # Template files are included
+])
+
+ffmpeg_library(
+    name = "postproc",
+    srcs = POSTPROC_SRCS,
+    hdrs = POSTPROC_HDRS + [
+        "config.h",
+        "config_components.h",
+    ],
+    copts = [
+        "-DHAVE_AV_CONFIG_H",
+        "-D_POSIX_C_SOURCE=200112",
+        "-D_XOPEN_SOURCE=600",
+    ],
+    includes = ["libpostproc"],
+    deps = [":avutil"],
+)
+
+# ============================================================================
+# libavcodec - Codec library (from libavcodec/Makefile)
+# ============================================================================
+
+# Base OBJS from libavcodec/Makefile lines 29-64
+AVCODEC_BASE_SRCS = [
+    "libavcodec/ac3_parser.c",
+    "libavcodec/adts_parser.c",
+    "libavcodec/allcodecs.c",
+    "libavcodec/avcodec.c",
+    "libavcodec/avdct.c",
+    "libavcodec/avfft.c",
+    "libavcodec/bitstream.c",
+    "libavcodec/bitstream_filters.c",
+    "libavcodec/bsf.c",
+    "libavcodec/codec_desc.c",
+    "libavcodec/codec_par.c",
+    "libavcodec/d3d11va.c",
+    "libavcodec/decode.c",
+    "libavcodec/dirac.c",
+    "libavcodec/dv_profile.c",
+    "libavcodec/encode.c",
+    "libavcodec/get_buffer.c",
+    "libavcodec/imgconvert.c",
+    "libavcodec/jni.c",
+    "libavcodec/lcevcdec.c",
+    "libavcodec/mathtables.c",
+    "libavcodec/mediacodec.c",
+    "libavcodec/mpeg12framerate.c",
+    "libavcodec/options.c",
+    "libavcodec/packet.c",
+    "libavcodec/parser.c",
+    "libavcodec/parsers.c",
+    "libavcodec/profiles.c",
+    "libavcodec/qsv_api.c",
+    "libavcodec/raw.c",
+    "libavcodec/threadprogress.c",
+    "libavcodec/utils.c",
+    "libavcodec/version.c",
+    "libavcodec/vlc.c",
+    "libavcodec/vorbis_parser.c",
+    "libavcodec/xiph.c",
+]
+
+# Common subsystems enabled in config.h
+AVCODEC_SUBSYS_SRCS = [
+    # AC3DSP
+    "libavcodec/ac3dsp.c",
+    "libavcodec/ac3.c",
+    "libavcodec/ac3tab.c",
+    # AUDIODSP
+    "libavcodec/audiodsp.c",
+    # BLOCKDSP
+    "libavcodec/blockdsp.c",
+    # BSWAPDSP
+    "libavcodec/bswapdsp.c",
+    # CABAC
+    "libavcodec/cabac.c",
+    # GOLOMB
+    "libavcodec/golomb.c",
+    # HPELDSP
+    "libavcodec/hpeldsp.c",
+    # VIDEODSP
+    "libavcodec/videodsp.c",
+    # PTHREAD
+    "libavcodec/pthread.c",
+    "libavcodec/pthread_frame.c",
+    "libavcodec/pthread_slice.c",
+]
+
+# Conditionally compiled based on config_components.h
+# These are essential codecs/parsers
+AVCODEC_CODEC_SRCS = glob(
+    ["libavcodec/*.c"],
+    exclude = [
+        # Exclude base files already listed
+        "libavcodec/ac3_parser.c",
+        "libavcodec/adts_parser.c",
+        "libavcodec/allcodecs.c",
+        "libavcodec/avcodec.c",
+        "libavcodec/avdct.c",
+        "libavcodec/avfft.c",
+        "libavcodec/bitstream.c",
+        "libavcodec/bitstream_filters.c",
+        "libavcodec/bsf.c",
+        "libavcodec/codec_desc.c",
+        "libavcodec/codec_par.c",
+        "libavcodec/d3d11va.c",
+        "libavcodec/decode.c",
+        "libavcodec/dirac.c",
+        "libavcodec/dv_profile.c",
+        "libavcodec/encode.c",
+        "libavcodec/get_buffer.c",
+        "libavcodec/imgconvert.c",
+        "libavcodec/jni.c",
+        "libavcodec/lcevcdec.c",
+        "libavcodec/mathtables.c",
+        "libavcodec/mediacodec.c",
+        "libavcodec/mpeg12framerate.c",
+        "libavcodec/options.c",
+        "libavcodec/packet.c",
+        "libavcodec/parser.c",
+        "libavcodec/parsers.c",
+        "libavcodec/profiles.c",
+        "libavcodec/qsv_api.c",
+        "libavcodec/raw.c",
+        "libavcodec/threadprogress.c",
+        "libavcodec/utils.c",
+        "libavcodec/version.c",
+        "libavcodec/vlc.c",
+        "libavcodec/vorbis_parser.c",
+        "libavcodec/xiph.c",
+        # Exclude subsystem files
+        "libavcodec/ac3dsp.c",
+        "libavcodec/ac3.c",
+        "libavcodec/ac3tab.c",
+        "libavcodec/audiodsp.c",
+        "libavcodec/blockdsp.c",
+        "libavcodec/bswapdsp.c",
+        "libavcodec/cabac.c",
+        "libavcodec/golomb.c",
+        "libavcodec/hpeldsp.c",
+        "libavcodec/videodsp.c",
+        "libavcodec/pthread.c",
+        "libavcodec/pthread_frame.c",
+        "libavcodec/pthread_slice.c",
+        # Exclude AAC files (listed in AVCODEC_AAC_SRCS)
+        "libavcodec/aactab.c",
+        "libavcodec/aacsbr.c",
+        "libavcodec/aacps_float.c",
+        "libavcodec/aacps_common.c",
+        "libavcodec/aacpsdsp_float.c",
+        "libavcodec/kbdwin.c",
+        "libavcodec/sbrdsp.c",
+        "libavcodec/cbrt_data.c",
+        # Exclude HEVC files (listed in AVCODEC_HEVC_SRCS)
+        "libavcodec/h2645data.c",
+        "libavcodec/h2645_parse.c",
+        "libavcodec/h2645_vui.c",
+        "libavcodec/h2645_sei.c",
+        "libavcodec/aom_film_grain.c",
+        # Exclude templates and tests
+        "libavcodec/*_template.c",
+        "libavcodec/tests/*.c",
+        # Exclude external lib wrappers we don't have
+        "libavcodec/lib*.c",
+        # Exclude platform-specific
+        "libavcodec/x86/*.c",
+        "libavcodec/arm/*.c",
+    ],
+)
+
+# AAC decoder files (from libavcodec/aac/Makefile)
+AVCODEC_AAC_SRCS = [
+    "libavcodec/aac/aacdec.c",
+    "libavcodec/aac/aacdec_tab.c",
+    "libavcodec/aac/aacdec_float.c",
+    "libavcodec/aac/aacdec_usac.c",
+    "libavcodec/aac/aacdec_ac.c",
+    "libavcodec/aac/aacdec_lpd.c",
+    "libavcodec/aac/aacdec_dsp.c",
+    "libavcodec/aactab.c",
+    "libavcodec/aacsbr.c",
+    "libavcodec/aacps_float.c",
+    "libavcodec/aacps_common.c",
+    "libavcodec/aacpsdsp_float.c",
+    "libavcodec/kbdwin.c",
+    "libavcodec/sbrdsp.c",
+    "libavcodec/cbrt_data.c",
+]
+
+# HEVC decoder files (from libavcodec/hevc/Makefile)
+AVCODEC_HEVC_SRCS = [
+    "libavcodec/hevc/cabac.c",
+    "libavcodec/hevc/data.c",
+    "libavcodec/hevc/dsp.c",
+    "libavcodec/hevc/filter.c",
+    "libavcodec/hevc/hevcdec.c",
+    "libavcodec/hevc/mvs.c",
+    "libavcodec/hevc/pred.c",
+    "libavcodec/hevc/refs.c",
+    "libavcodec/hevc/parser.c",
+    "libavcodec/hevc/parse.c",
+    "libavcodec/hevc/ps.c",
+    "libavcodec/hevc/sei.c",
+    # Additional HEVC dependencies
+    "libavcodec/h2645data.c",
+    "libavcodec/h2645_parse.c",
+    "libavcodec/h2645_vui.c",
+    "libavcodec/h2645_sei.c",
+    "libavcodec/aom_film_grain.c",
+]
+
+AVCODEC_ASM_SRCS = glob([
+    "libavcodec/aarch64/*.S",
+], exclude = [
+    "libavcodec/aarch64/neon.S",  # This is included by other .S files
+])
+
+AVCODEC_ASM_INCLUDE_FILES = [
+    "libavcodec/aarch64/neon.S",
+]
+
+AVCODEC_PUBLIC_HDRS = [
+    "libavcodec/ac3_parser.h",
+    "libavcodec/adts_parser.h",
+    "libavcodec/avcodec.h",
+    "libavcodec/avdct.h",
+    "libavcodec/avfft.h",
+    "libavcodec/bsf.h",
+    "libavcodec/codec.h",
+    "libavcodec/codec_desc.h",
+    "libavcodec/codec_id.h",
+    "libavcodec/codec_par.h",
+    "libavcodec/d3d11va.h",
+    "libavcodec/defs.h",
+    "libavcodec/dirac.h",
+    "libavcodec/dv_profile.h",
+    "libavcodec/dxva2.h",
+    "libavcodec/jni.h",
+    "libavcodec/mediacodec.h",
+    "libavcodec/packet.h",
+    "libavcodec/qsv.h",
+    "libavcodec/vdpau.h",
+    "libavcodec/version.h",
+    "libavcodec/version_major.h",
+    "libavcodec/videotoolbox.h",
+    "libavcodec/vorbis_parser.h",
+]
+
+AVCODEC_PRIVATE_HDRS = glob([
+    "libavcodec/*.h",
+    "libavcodec/aarch64/*.h",
+    "libavcodec/aac/*.h",
+    "libavcodec/hevc/*.h",
+], exclude = AVCODEC_PUBLIC_HDRS)
+
+ffmpeg_library(
+    name = "avcodec",
+    srcs = AVCODEC_BASE_SRCS + AVCODEC_SUBSYS_SRCS + AVCODEC_CODEC_SRCS + 
+           AVCODEC_AAC_SRCS + AVCODEC_HEVC_SRCS,
+    hdrs = AVCODEC_PUBLIC_HDRS + [
+        "config.h",
+        "config_components.h",
+    ],
+    textual_hdrs = AVCODEC_PRIVATE_HDRS + AVCODEC_ASM_INCLUDE_FILES + glob(["libavfilter/*.h"]),
+    asm_srcs = AVCODEC_ASM_SRCS,
+    copts = [
+        "-DHAVE_AV_CONFIG_H",
+        "-D_POSIX_C_SOURCE=200112",
+        "-D_XOPEN_SOURCE=600",
+    ],
+    includes = [
+        "libavcodec",
+        "libavcodec/aarch64",  # For neon.S includes in .S files
+        "libavfilter",
+    ],
     deps = [
-        #":avdevice_objc",
-        ":config_h",
+        ":avutil",
+        ":swresample",
+    ],
+)
+
+# ============================================================================
+# libavformat - Container format library
+# ============================================================================
+
+AVFORMAT_SRCS = glob(
+    ["libavformat/*.c"],
+    exclude = [
+        "libavformat/*_template.c",
+        "libavformat/tests/*.c",
+    ],
+)
+
+AVFORMAT_HDRS = glob(["libavformat/*.h"])
+
+ffmpeg_library(
+    name = "avformat",
+    srcs = AVFORMAT_SRCS,
+    hdrs = AVFORMAT_HDRS + glob(["libavutil/*.h"]) + [
+        "config.h",
+        "config_components.h",
+    ],
+    copts = [
+        "-DHAVE_AV_CONFIG_H",
+        "-D_POSIX_C_SOURCE=200112",
+        "-D_XOPEN_SOURCE=600",
+    ],
+    includes = [
+        "libavformat",
+        "libavutil",
+    ],
+    linkopts = select({
+        "@platforms//os:macos": [
+            "-framework CoreFoundation",
+            "-framework Security",
+        ],
+        "//conditions:default": [],
+    }),
+    deps = [
+        ":avcodec",
+        ":avutil",
+        "@bzip2//:bz2",
+        "@zlib",
+    ],
+)
+
+# ============================================================================
+# libavfilter - Audio/Video filtering library
+# ============================================================================
+
+AVFILTER_SRCS = glob(
+    ["libavfilter/*.c"],
+    exclude = [
+        "libavfilter/*_template.c",
+        "libavfilter/tests/*.c",
+        # Exclude disabled features
+        "libavfilter/vulkan*.c",  # CONFIG_VULKAN=0
+    ],
+)
+
+AVFILTER_HDRS = glob(["libavfilter/*.h"])
+AVFILTER_TEMPLATE_HDRS = glob(["libavfilter/*_template.c"])  # Templates included by filters
+
+ffmpeg_library(
+    name = "avfilter",
+    srcs = AVFILTER_SRCS,
+    hdrs = AVFILTER_HDRS + [
+        "config.h",
+        "config_components.h",
+    ],
+    textual_hdrs = AVFILTER_TEMPLATE_HDRS,
+    copts = [
+        "-DHAVE_AV_CONFIG_H",
+        "-D_POSIX_C_SOURCE=200112",
+        "-D_XOPEN_SOURCE=600",
+    ],
+    includes = ["libavfilter"],
+    deps = [
+        ":avcodec",
+        ":avformat",
+        ":avutil",
+        ":swresample",
+        ":swscale",
+    ],
+)
+
+# ============================================================================
+# libavdevice - Device handling library
+# ============================================================================
+
+# Only include enabled devices based on config_components.h
+# CONFIG_LAVFI_INDEV = 1, CONFIG_AVFOUNDATION_INDEV, CONFIG_AUDIOTOOLBOX_OUTDEV (macOS only)
+AVDEVICE_SRCS = [
+    "libavdevice/alldevices.c",
+    "libavdevice/avdevice.c",
+    "libavdevice/reverse.c",
+    "libavdevice/timefilter.c",
+    "libavdevice/utils.c",
+    "libavdevice/version.c",
+    # Enabled devices
+    "libavdevice/lavfi.c",
+]
+
+# These are included by alldevices.c
+AVDEVICE_LIST_FILES = [
+    "libavdevice/indev_list.c",
+    "libavdevice/outdev_list.c",
+]
+
+AVDEVICE_MACOS_SRCS = [
+    "libavdevice/avfoundation.m",
+    "libavdevice/audiotoolbox.m",
+]
+
+AVDEVICE_HDRS = glob(["libavdevice/*.h"])
+
+# macOS-specific device library (Objective-C)
+objc_library(
+    name = "avdevice_macos",
+    srcs = select({
+        "@platforms//os:macos": AVDEVICE_MACOS_SRCS,
+        "//conditions:default": [],
+    }),
+    hdrs = AVDEVICE_HDRS + [
+        "config.h",
+        "config_components.h",
+    ],
+    copts = select({
+        "@platforms//os:macos": [
+            "-std=gnu11",
+            "-Wno-deprecated-declarations",
+            "-Wno-pointer-sign",
+            "-Wno-implicit-function-declaration",
+            "-Wno-error=implicit-function-declaration",
+            "-DHAVE_AV_CONFIG_H",
+            "-D_POSIX_C_SOURCE=200112",
+            "-D_XOPEN_SOURCE=600",
+            "-fobjc-arc",
+        ],
+        "//conditions:default": [],
+    }),
+    includes = ["libavdevice"],
+    sdk_frameworks = [
+        "AVFoundation",
+        "CoreMedia",
+        "CoreVideo",
+        "CoreGraphics",
+        "Foundation",
+        "AudioToolbox",
+    ],
+    deps = [
         ":avcodec",
         ":avfilter",
         ":avformat",
         ":avutil",
-        ":swresample",
-        ":swscale",
     ],
 )
 
-# objc_library(
-#     name = "avdevice_objc",
-#     srcs = glob([
-#         "libavdevice/*.m",
-#         "libavdevice/*.h",
-#         "libavutil/*.h",
-#     ]),
-# )
-
-cc_library(
-    name = "avfilter",
-    srcs = [
-        ":avfilter_asm_objs",
-        ":avfilter_c",
-    ] + glob([
-        "libavfilter/*.h",
-        "libswscale/*.h",
-    ]),
-    hdrs = [":avfilter_h"],
-    copts = CC_COPTS + [
-        "-include ffmpeg/libavutil/internal.h",
-        "-include ffmpeg/libavutil/intmath.h",
+ffmpeg_library(
+    name = "avdevice",
+    srcs = AVDEVICE_SRCS,
+    hdrs = AVDEVICE_HDRS + [
+        "config.h",
+        "config_components.h",
     ],
-    linkopts = CC_LINKOPTS,
-    textual_hdrs = glob([
-        # "libavfilter/*.inc",
-        "libavfilter/*_template.c",
-    ]),
-    visibility = ["//visibility:public"],
-    deps = [
-        ":avformat",
-        ":avutil",
-        ":config_h",
-        ":swresample",
-        ":swscale",
+    textual_hdrs = AVDEVICE_LIST_FILES + glob(["libavfilter/*.c"]),  # Included by alldevices.c and ccfifo.c
+    copts = [
+        "-DHAVE_AV_CONFIG_H",
+        "-D_POSIX_C_SOURCE=200112",
+        "-D_XOPEN_SOURCE=600",
     ],
-)
-
-# objc_library(
-#     name = "avfilter_objc",
-#     srcs = glob(["libavfilter/*.m"]),
-# )
-
-nasm_library(
-    name = "avfilter_asm_objs",
-    srcs = [":avfilter_asm"],
-    copts = NASM_COPTS,
-    preincs = ["config.asm"],
-    # deps = [
-    #     "config.asm",
-    #     ":avutil_asm_inc",
-    # ],
-)
-
-cc_library(
-    name = "avformat",
-    srcs = [":avformat_c"],
-    hdrs = [":avformat_h"],
-    copts = CC_COPTS + [
-        "-include ffmpeg/libavutil/internal.h",
-        "-include ffmpeg/libavutil/intmath.h",
-    ],
-    linkopts = CC_LINKOPTS,
-    textual_hdrs = [
-        "libavformat/protocol_list.c",
-    ],
-    visibility = ["//visibility:public"],
+    includes = ["libavdevice"],
+    linkopts = select({
+        "@platforms//os:macos": [
+            "-framework AVFoundation",
+            "-framework CoreMedia",
+            "-framework CoreVideo",
+            "-framework CoreGraphics",
+            "-framework Foundation",
+        ],
+        "//conditions:default": [],
+    }),
     deps = [
         ":avcodec",
+        ":avfilter",
+        ":avformat",
         ":avutil",
-        ":config_h",
-        ":swresample",
-        "@bzip2",
-        "@openssl//:crypto",
-        "@openssl//:ssl",
-    ],
+    ] + select({
+        "@platforms//os:macos": [":avdevice_macos"],
+        "//conditions:default": [],
+    }),
 )
 
+# ============================================================================
+# fftools - Command-line tools (from fftools/Makefile)
+# ============================================================================
+
+FFTOOLS_COMMON_SRCS = [
+    "fftools/cmdutils.c",
+    "fftools/opt_common.c",
+]
+
+FFTOOLS_COMMON_HDRS = [
+    "fftools/cmdutils.h",
+    "fftools/opt_common.h",
+    "fftools/fopen_utf8.h",
+]
+
 cc_library(
-    name = "postproc",
-    srcs = [":postproc_c"] + glob([
+    name = "fftools_common",
+    srcs = FFTOOLS_COMMON_SRCS,
+    hdrs = FFTOOLS_COMMON_HDRS + glob([
+        "libavcodec/*.h",
+        "libavdevice/*.h",
+        "libavfilter/*.h",
+        "libavformat/*.h",
+        "libavutil/*.h",
         "libpostproc/*.h",
-    ]),
-    hdrs = [":postproc_h"],
-    copts = CC_COPTS + [
-        "-include ffmpeg/libavutil/cpu.h",
-    ],
-    linkopts = CC_LINKOPTS,
-    textual_hdrs = glob([
-        "libpostproc/*_template.c",
-    ]),
-    visibility = ["//visibility:public"],
-    deps = [
-        ":avutil",
-        ":config_h",
-    ],
-)
-
-cc_library(
-    name = "swresample",
-    srcs = [
-        ":swresample_asm_objs",
-        ":swresample_c",
-    ] + glob([
         "libswresample/*.h",
-    ]),
-    hdrs = [":swresample_h"],
-    copts = CC_COPTS + [
-        "-include ffmpeg/libavutil/internal.h",
-    ],
-    linkopts = CC_LINKOPTS,
-    textual_hdrs = glob([
-        "libswresample/*_data.c",
-        "libswresample/*_template.c",
-    ]),
-    visibility = ["//visibility:public"],
-    deps = [
-        ":avutil",
-        ":config_h",
-    ],
-)
-
-nasm_library(
-    name = "swresample_asm_objs",
-    srcs = [":swresample_asm"],
-    copts = NASM_COPTS,
-    preincs = ["config.asm"],
-    # deps = [
-    #     "config.asm",
-    #     ":avutil_asm_inc",
-    # ],
-)
-
-cc_library(
-    name = "swscale",
-    srcs = [
-        ":swscale_asm_objs",
-        ":swscale_c",
-    ] + glob([
         "libswscale/*.h",
-    ]),
-    hdrs = [":swscale_h"],
-    copts = CC_COPTS + [
-        "-include ffmpeg/libavutil/internal.h",
+    ]) + [
+        "config.h",
+        "config_components.h",
     ],
-    linkopts = CC_LINKOPTS,
-    textual_hdrs = glob([
-        "libswscale/**/*_template.c",
-    ]),
-    visibility = ["//visibility:public"],
+    copts = select({
+        "@platforms//os:macos": [
+            "-D_DARWIN_C_SOURCE",
+            "-D_POSIX_C_SOURCE=200112",
+            "-D_XOPEN_SOURCE=600",
+            "-DHAVE_AV_CONFIG_H",
+            "-std=gnu11",
+            "-Wno-deprecated-declarations",
+            "-Wno-pointer-sign",
+            "-Wno-implicit-function-declaration",
+            "-Wno-error=implicit-function-declaration",
+            "-Wno-incompatible-pointer-types",
+            "-Wno-int-conversion",
+        ],
+        "//conditions:default": [
+            "-D_POSIX_C_SOURCE=200112",
+            "-D_XOPEN_SOURCE=600",
+            "-DHAVE_AV_CONFIG_H",
+            "-std=gnu11",
+            "-Wno-deprecated-declarations",
+            "-Wno-pointer-sign",
+            "-Wno-implicit-function-declaration",
+            "-Wno-error=implicit-function-declaration",
+            "-Wno-incompatible-pointer-types",
+            "-Wno-int-conversion",
+        ],
+    }),
+    includes = [
+        "fftools",
+        "libavcodec",
+        "libavdevice",
+        "libavfilter",
+        "libavformat",
+        "libavutil",
+        "libpostproc",
+        "libswresample",
+        "libswscale",
+    ],
     deps = [
+        ":avcodec",
+        ":avdevice",
+        ":avfilter",
+        ":avformat",
         ":avutil",
-        ":config_h",
+        ":postproc",
+        ":swresample",
+        ":swscale",
     ],
 )
 
-nasm_library(
-    name = "swscale_asm_objs",
-    srcs = [":swscale_asm"],
-    copts = NASM_COPTS,
-    preincs = ["config.asm"],
-    # deps = [
-    #     "config.asm",
-    #     ":avutil_asm_inc",
-    # ],
+# ffmpeg binary (from fftools/Makefile OBJS-ffmpeg)
+cc_binary(
+    name = "ffmpeg",
+    srcs = [
+        "fftools/ffmpeg.c",
+        "fftools/ffmpeg_dec.c",
+        "fftools/ffmpeg_demux.c",
+        "fftools/ffmpeg_enc.c",
+        "fftools/ffmpeg_filter.c",
+        "fftools/ffmpeg_hw.c",
+        "fftools/ffmpeg_mux.c",
+        "fftools/ffmpeg_mux_init.c",
+        "fftools/ffmpeg_opt.c",
+        "fftools/ffmpeg_sched.c",
+        "fftools/sync_queue.c",
+        "fftools/thread_queue.c",
+        "fftools/ffmpeg.h",
+        "fftools/ffmpeg_mux.h",
+        "fftools/ffmpeg_sched.h",
+        "fftools/ffmpeg_utils.h",
+        "fftools/sync_queue.h",
+        "fftools/thread_queue.h",
+    ],
+    copts = select({
+        "@platforms//os:macos": [
+            "-D_DARWIN_C_SOURCE",
+            "-D_POSIX_C_SOURCE=200112",
+            "-D_XOPEN_SOURCE=600",
+            "-DHAVE_AV_CONFIG_H",
+            "-std=gnu11",
+            "-Wno-deprecated-declarations",
+            "-Wno-pointer-sign",
+            "-Wno-implicit-function-declaration",
+            "-Wno-error=implicit-function-declaration",
+            "-Wno-incompatible-pointer-types",
+            "-Wno-int-conversion",
+        ],
+        "//conditions:default": [
+            "-D_POSIX_C_SOURCE=200112",
+            "-D_XOPEN_SOURCE=600",
+            "-DHAVE_AV_CONFIG_H",
+            "-std=gnu11",
+            "-Wno-deprecated-declarations",
+            "-Wno-pointer-sign",
+            "-Wno-implicit-function-declaration",
+            "-Wno-error=implicit-function-declaration",
+            "-Wno-incompatible-pointer-types",
+            "-Wno-int-conversion",
+        ],
+    }),
+    includes = [
+        "fftools",
+        "libavcodec",
+        "libavdevice",
+        "libavfilter",
+        "libavformat",
+        "libavutil",
+        "libpostproc",
+        "libswresample",
+        "libswscale",
+    ],
+    linkopts = select({
+        "@platforms//os:macos": [
+            "-framework CoreFoundation",
+            "-framework CoreVideo",
+            "-framework VideoToolbox",
+            "-framework AVFoundation",
+            "-framework CoreMedia",
+            "-framework CoreGraphics",
+            "-framework Foundation",
+            "-framework Security",
+        ],
+        "//conditions:default": [],
+    }) + [
+        "-lm",
+        "-lpthread",
+    ],
+    deps = [
+        ":avcodec",
+        ":avdevice",
+        ":avfilter",
+        ":avformat",
+        ":avutil",
+        ":fftools_common",
+        ":swresample",
+        ":swscale",
+    ],
+)
+
+# ffprobe binary
+cc_binary(
+    name = "ffprobe",
+    srcs = [
+        "fftools/ffprobe.c",
+    ],
+    copts = select({
+        "@platforms//os:macos": [
+            "-D_DARWIN_C_SOURCE",
+            "-D_POSIX_C_SOURCE=200112",
+            "-D_XOPEN_SOURCE=600",
+            "-DHAVE_AV_CONFIG_H",
+            "-std=gnu11",
+            "-Wno-deprecated-declarations",
+            "-Wno-pointer-sign",
+            "-Wno-implicit-function-declaration",
+            "-Wno-error=implicit-function-declaration",
+            "-Wno-incompatible-pointer-types",
+            "-Wno-int-conversion",
+        ],
+        "//conditions:default": [
+            "-D_POSIX_C_SOURCE=200112",
+            "-D_XOPEN_SOURCE=600",
+            "-DHAVE_AV_CONFIG_H",
+            "-std=gnu11",
+            "-Wno-deprecated-declarations",
+            "-Wno-pointer-sign",
+            "-Wno-implicit-function-declaration",
+            "-Wno-error=implicit-function-declaration",
+            "-Wno-incompatible-pointer-types",
+            "-Wno-int-conversion",
+        ],
+    }),
+    includes = [
+        "fftools",
+        "libavcodec",
+        "libavdevice",
+        "libavfilter",
+        "libavformat",
+        "libavutil",
+        "libpostproc",
+        "libswresample",
+        "libswscale",
+    ],
+    linkopts = select({
+        "@platforms//os:macos": [
+            "-framework CoreFoundation",
+            "-framework CoreVideo",
+            "-framework VideoToolbox",
+            "-framework AVFoundation",
+            "-framework CoreMedia",
+            "-framework CoreGraphics",
+            "-framework Foundation",
+            "-framework Security",
+        ],
+        "//conditions:default": [],
+    }) + [
+        "-lm",
+        "-lpthread",
+    ],
+    deps = [
+        ":avcodec",
+        ":avdevice",
+        ":avfilter",
+        ":avformat",
+        ":avutil",
+        ":fftools_common",
+        ":swresample",
+        ":swscale",
+    ],
 )

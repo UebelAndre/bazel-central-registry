@@ -1,9 +1,12 @@
 {
     "url": "https://github.com/FFmpeg/FFmpeg/archive/db69d06eeeab4f46da15030a80d539efb4503ca8.zip",
     "strip_prefix": "ffmpeg-db69d06eeeab4f46da15030a80d539efb4503ca8",
-    "integrity": "",
+    "integrity": "sha256-djUBIkP5vliiHBlOUAdYN3K04960dv4SL/O6N3TLclU=",
     "overlay": {
-        "BUILD.bazel": "sha256-9SaOV0p4Ir9YjNUtm3WcuxIaDcF4CruF3u5HVmZtDA0=",
-        "MODULE.bazel": "sha256-9t/BzJhTc1nGQY+wfyQkkQl+lrVPUgT37AFt5epRa1M="
+        "BUILD.bazel": "sha256-NMm4GbH1aX7xXp1e/w3VAzX3cClzOtP6DO6LC8Cmc84=",
+        "MODULE.bazel": "sha256-Ew412CRF1F/r8BB42JLZpqRJa0mja2dBxXFKvll/Oqo=",
+        "config_components_macos.h": "sha256-zveRmjqYo+xZ0nmpsSsukg+hx7TgIX9vZPleITvisUM=",
+        "config_macos.h": "sha256-TD7qorn1SuUXtMLJHRiHDWeCPnHB2qh3U3qHjVuWavc=",
+        "ffmpeg_utils.bzl": "sha256-405tsQnkhfuwjXMeleVw69mdQV+NllOX2svW1n8P/9g="
     }
 }

@@ -129,7 +129,14 @@ AVUTIL_ASM_SRCS = [
 AVUTIL_HDRS = glob([
     "libavutil/*.h",
     "libavutil/aarch64/*.h",
+    "libavutil/ppc/*.h",    # PPC headers
     "compat/**/*.h",  # compat headers
+], exclude = [
+    "libavutil/hwcontext_vulkan.h",  # CONFIG_VULKAN=0
+    "libavutil/vulkan.h",            # CONFIG_VULKAN=0
+    "libavutil/vulkan_functions.h",  # CONFIG_VULKAN=0
+    "libavutil/vulkan_loader.h",     # CONFIG_VULKAN=0
+    "libavutil/vulkan_spirv.h",      # CONFIG_VULKAN=0
 ]) + [
     "libavutil/aarch64/asm.S",  # asm.S is included by other .S files
 ]
@@ -147,8 +154,6 @@ ffmpeg_library(
     ],
     local_defines = [
         "_ISOC11_SOURCE",
-        "_POSIX_C_SOURCE=200112",
-        "_XOPEN_SOURCE=600",
     ],
     includes = [
         "libavutil",
@@ -193,6 +198,12 @@ SWRESAMPLE_SRCS = [
 ]
 
 SWRESAMPLE_HDRS = glob(["libswresample/*.h"])
+SWRESAMPLE_DATA_FILES = [
+    "libswresample/noise_shaping_data.c",  # Included by dither.c
+    "libswresample/dither_template.c",     # Included by dither.c
+    "libswresample/rematrix_template.c",   # Included by rematrix.c
+    "libswresample/resample_template.c",   # Included by resample_dsp.c
+]
 
 ffmpeg_library(
     name = "swresample",
@@ -201,10 +212,9 @@ ffmpeg_library(
         "config.h",
         "config_components.h",
     ],
+    textual_hdrs = SWRESAMPLE_DATA_FILES,
     copts = [
         "-DHAVE_AV_CONFIG_H",
-        "-D_POSIX_C_SOURCE=200112",
-        "-D_XOPEN_SOURCE=600",
     ],
     includes = ["libswresample"],
     deps = [":avutil"],
@@ -248,10 +258,11 @@ ffmpeg_library(
     ],
     copts = [
         "-DHAVE_AV_CONFIG_H",
-        "-D_POSIX_C_SOURCE=200112",
-        "-D_XOPEN_SOURCE=600",
     ],
-    includes = ["libswscale"],
+    includes = [
+        "libswscale",
+        "libavutil/ppc",  # For ppc/cpu.h includes
+    ],
     deps = [":avutil"],
 )
 
@@ -278,8 +289,6 @@ ffmpeg_library(
     ],
     copts = [
         "-DHAVE_AV_CONFIG_H",
-        "-D_POSIX_C_SOURCE=200112",
-        "-D_XOPEN_SOURCE=600",
     ],
     includes = ["libpostproc"],
     deps = [":avutil"],
@@ -496,7 +505,7 @@ AVCODEC_PUBLIC_HDRS = [
     "libavcodec/avfft.h",
     "libavcodec/bsf.h",
     "libavcodec/codec.h",
-    "libavcodec/codec_desc.h",
+    "libavcodec/codec_desc.h",  # Required by avcodec.h
     "libavcodec/codec_id.h",
     "libavcodec/codec_par.h",
     "libavcodec/d3d11va.h",
@@ -534,8 +543,6 @@ ffmpeg_library(
     asm_srcs = AVCODEC_ASM_SRCS,
     copts = [
         "-DHAVE_AV_CONFIG_H",
-        "-D_POSIX_C_SOURCE=200112",
-        "-D_XOPEN_SOURCE=600",
     ],
     includes = [
         "libavcodec",
@@ -571,8 +578,6 @@ ffmpeg_library(
     ],
     copts = [
         "-DHAVE_AV_CONFIG_H",
-        "-D_POSIX_C_SOURCE=200112",
-        "-D_XOPEN_SOURCE=600",
     ],
     includes = [
         "libavformat",
@@ -620,8 +625,6 @@ ffmpeg_library(
     textual_hdrs = AVFILTER_TEMPLATE_HDRS,
     copts = [
         "-DHAVE_AV_CONFIG_H",
-        "-D_POSIX_C_SOURCE=200112",
-        "-D_XOPEN_SOURCE=600",
     ],
     includes = ["libavfilter"],
     deps = [
@@ -654,6 +657,11 @@ AVDEVICE_SRCS = [
 AVDEVICE_LIST_FILES = [
     "libavdevice/indev_list.c",
     "libavdevice/outdev_list.c",
+]
+
+# These are included by other files
+AVDEVICE_INCLUDE_FILES = [
+    "libavutil/reverse.c",  # Included by libavdevice/reverse.c
 ]
 
 AVDEVICE_MACOS_SRCS = [
@@ -712,11 +720,9 @@ ffmpeg_library(
         "config.h",
         "config_components.h",
     ],
-    textual_hdrs = AVDEVICE_LIST_FILES + glob(["libavfilter/*.c"]),  # Included by alldevices.c and ccfifo.c
+    textual_hdrs = AVDEVICE_LIST_FILES + AVDEVICE_INCLUDE_FILES + glob(["libavfilter/*.c"]),  # Included by alldevices.c and ccfifo.c
     copts = [
         "-DHAVE_AV_CONFIG_H",
-        "-D_POSIX_C_SOURCE=200112",
-        "-D_XOPEN_SOURCE=600",
     ],
     includes = ["libavdevice"],
     linkopts = select({
@@ -764,9 +770,16 @@ cc_library(
         "libavfilter/*.h",
         "libavformat/*.h",
         "libavutil/*.h",
+        "libavutil/ppc/*.h",
         "libpostproc/*.h",
         "libswresample/*.h",
         "libswscale/*.h",
+    ], exclude = [
+        "libavutil/hwcontext_vulkan.h",  # CONFIG_VULKAN=0
+        "libavutil/vulkan.h",            # CONFIG_VULKAN=0
+        "libavutil/vulkan_functions.h",  # CONFIG_VULKAN=0
+        "libavutil/vulkan_loader.h",     # CONFIG_VULKAN=0
+        "libavutil/vulkan_spirv.h",      # CONFIG_VULKAN=0
     ]) + [
         "config.h",
         "config_components.h",
@@ -774,9 +787,6 @@ cc_library(
     copts = select({
         "@platforms//os:macos": [
             "-D_DARWIN_C_SOURCE",
-            "-D_POSIX_C_SOURCE=200112",
-            "-D_XOPEN_SOURCE=600",
-            "-DHAVE_AV_CONFIG_H",
             "-std=gnu11",
             "-Wno-deprecated-declarations",
             "-Wno-pointer-sign",
@@ -786,9 +796,6 @@ cc_library(
             "-Wno-int-conversion",
         ],
         "//conditions:default": [
-            "-D_POSIX_C_SOURCE=200112",
-            "-D_XOPEN_SOURCE=600",
-            "-DHAVE_AV_CONFIG_H",
             "-std=gnu11",
             "-Wno-deprecated-declarations",
             "-Wno-pointer-sign",
@@ -847,9 +854,7 @@ cc_binary(
     copts = select({
         "@platforms//os:macos": [
             "-D_DARWIN_C_SOURCE",
-            "-D_POSIX_C_SOURCE=200112",
-            "-D_XOPEN_SOURCE=600",
-            "-DHAVE_AV_CONFIG_H",
+            "-D_DEFAULT_SOURCE",
             "-std=gnu11",
             "-Wno-deprecated-declarations",
             "-Wno-pointer-sign",
@@ -859,9 +864,7 @@ cc_binary(
             "-Wno-int-conversion",
         ],
         "//conditions:default": [
-            "-D_POSIX_C_SOURCE=200112",
-            "-D_XOPEN_SOURCE=600",
-            "-DHAVE_AV_CONFIG_H",
+            "-D_DEFAULT_SOURCE",
             "-std=gnu11",
             "-Wno-deprecated-declarations",
             "-Wno-pointer-sign",
@@ -919,9 +922,7 @@ cc_binary(
     copts = select({
         "@platforms//os:macos": [
             "-D_DARWIN_C_SOURCE",
-            "-D_POSIX_C_SOURCE=200112",
-            "-D_XOPEN_SOURCE=600",
-            "-DHAVE_AV_CONFIG_H",
+            "-D_DEFAULT_SOURCE",
             "-std=gnu11",
             "-Wno-deprecated-declarations",
             "-Wno-pointer-sign",
@@ -931,9 +932,7 @@ cc_binary(
             "-Wno-int-conversion",
         ],
         "//conditions:default": [
-            "-D_POSIX_C_SOURCE=200112",
-            "-D_XOPEN_SOURCE=600",
-            "-DHAVE_AV_CONFIG_H",
+            "-D_DEFAULT_SOURCE",
             "-std=gnu11",
             "-Wno-deprecated-declarations",
             "-Wno-pointer-sign",

@@ -1,7 +1,9 @@
 """FFmpeg build file for Bazel - Generated from Makefiles."""
 
-load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "objc_library")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
 load(":ffmpeg_utils.bzl", "ffmpeg_library")
+
+# Using default NASM toolchain from @rules_nasm//nasm/toolchain
 
 package(default_visibility = ["//visibility:public"])
 
@@ -126,23 +128,20 @@ AVUTIL_ASM_SRCS = [
     "libavutil/aarch64/cpu_sve.S",  # SVE-OBJS
 ]
 
-AVUTIL_HDRS = glob(
-    [
-        "libavutil/*.h",
-        "libavutil/aarch64/*.h",
-        "libavutil/ppc/*.h",  # PPC headers
-        "compat/**/*.h",  # compat headers
-    ],
-    exclude = [
-        "libavutil/hwcontext_vulkan.h",  # CONFIG_VULKAN=0
-        "libavutil/vulkan.h",  # CONFIG_VULKAN=0
-        "libavutil/vulkan_functions.h",  # CONFIG_VULKAN=0
-        "libavutil/vulkan_loader.h",  # CONFIG_VULKAN=0
-        "libavutil/vulkan_spirv.h",  # CONFIG_VULKAN=0
-    ],
-) + [
+AVUTIL_HDRS = glob([
+    "libavutil/*.h",
+    "libavutil/aarch64/*.h",
+    "libavutil/ppc/*.h",    # PPC headers
+    "compat/**/*.h",  # compat headers
+], exclude = [
+    "libavutil/hwcontext_vulkan.h",  # CONFIG_VULKAN=0
+    "libavutil/vulkan.h",            # CONFIG_VULKAN=0
+    "libavutil/vulkan_functions.h",  # CONFIG_VULKAN=0
+    "libavutil/vulkan_loader.h",     # CONFIG_VULKAN=0
+    "libavutil/vulkan_spirv.h",      # CONFIG_VULKAN=0
+]) + [
     "libavutil/aarch64/asm.S",  # asm.S is included by other .S files
-    "libavutil/tx_template.c",  # Template file included by tx_*.c files
+    "libavutil/tx_template.c",   # Template file included by tx_*.c files
 ]
 
 ffmpeg_library(
@@ -156,12 +155,15 @@ ffmpeg_library(
     copts = [
         "-DHAVE_AV_CONFIG_H",
     ],
+    local_defines = [
+        "_ISOC11_SOURCE",
+    ],
     includes = [
-        "compat",  # For compat headers like va_copy.h
-        "compat/stdbit",  # For stdbit.h
-        "libavcodec",
         "libavutil",
         "libavutil/aarch64",  # For asm.S includes
+        "libavcodec",
+        "compat",  # For compat headers like va_copy.h
+        "compat/stdbit",  # For stdbit.h
     ],
     linkopts = select({
         "@platforms//os:macos": [
@@ -176,9 +178,6 @@ ffmpeg_library(
             "-lpthread",
         ],
     }),
-    local_defines = [
-        "_ISOC11_SOURCE",
-    ],
     deps = [
         "@bzip2//:bz2",
         "@zlib",
@@ -202,12 +201,11 @@ SWRESAMPLE_SRCS = [
 ]
 
 SWRESAMPLE_HDRS = glob(["libswresample/*.h"])
-
 SWRESAMPLE_DATA_FILES = [
     "libswresample/noise_shaping_data.c",  # Included by dither.c
-    "libswresample/dither_template.c",  # Included by dither.c
-    "libswresample/rematrix_template.c",  # Included by rematrix.c
-    "libswresample/resample_template.c",  # Included by resample_dsp.c
+    "libswresample/dither_template.c",     # Included by dither.c
+    "libswresample/rematrix_template.c",   # Included by rematrix.c
+    "libswresample/resample_template.c",   # Included by resample_dsp.c
 ]
 
 ffmpeg_library(
@@ -217,11 +215,11 @@ ffmpeg_library(
         "config.h",
         "config_components.h",
     ],
+    textual_hdrs = SWRESAMPLE_DATA_FILES,
     copts = [
         "-DHAVE_AV_CONFIG_H",
     ],
     includes = ["libswresample"],
-    textual_hdrs = SWRESAMPLE_DATA_FILES,
     deps = [":avutil"],
 )
 
@@ -261,12 +259,16 @@ ffmpeg_library(
         "config.h",
         "config_components.h",
     ],
+    textual_hdrs = [
+        "libswscale/rgb2rgb_template.c",
+        "libswscale/bayer_template.c",
+    ],
     copts = [
         "-DHAVE_AV_CONFIG_H",
     ],
     includes = [
-        "libavutil/ppc",  # For ppc/cpu.h includes
         "libswscale",
+        "libavutil/ppc",  # For ppc/cpu.h includes
     ],
     deps = [":avutil"],
 )
@@ -492,14 +494,11 @@ AVCODEC_HEVC_SRCS = [
     "libavcodec/aom_film_grain.c",
 ]
 
-AVCODEC_ASM_SRCS = glob(
-    [
-        "libavcodec/aarch64/*.S",
-    ],
-    exclude = [
-        "libavcodec/aarch64/neon.S",  # This is included by other .S files
-    ],
-)
+AVCODEC_ASM_SRCS = glob([
+    "libavcodec/aarch64/*.S",
+], exclude = [
+    "libavcodec/aarch64/neon.S",  # This is included by other .S files
+])
 
 AVCODEC_ASM_INCLUDE_FILES = [
     "libavcodec/aarch64/neon.S",
@@ -532,15 +531,12 @@ AVCODEC_PUBLIC_HDRS = [
     "libavcodec/vorbis_parser.h",
 ]
 
-AVCODEC_PRIVATE_HDRS = glob(
-    [
-        "libavcodec/*.h",
-        "libavcodec/aarch64/*.h",
-        "libavcodec/aac/*.h",
-        "libavcodec/hevc/*.h",
-    ],
-    exclude = AVCODEC_PUBLIC_HDRS,
-)
+AVCODEC_PRIVATE_HDRS = glob([
+    "libavcodec/*.h",
+    "libavcodec/aarch64/*.h",
+    "libavcodec/aac/*.h",
+    "libavcodec/hevc/*.h",
+], exclude = AVCODEC_PUBLIC_HDRS)
 
 ffmpeg_library(
     name = "avcodec",
@@ -549,6 +545,11 @@ ffmpeg_library(
     hdrs = AVCODEC_PUBLIC_HDRS + [
         "config.h",
         "config_components.h",
+    ],
+    textual_hdrs = AVCODEC_PRIVATE_HDRS + AVCODEC_ASM_INCLUDE_FILES + glob(["libavfilter/*.h"]) + [
+        "libavcodec/codec_list.c",
+        "libavcodec/parser_list.c",
+        "libavcodec/bsf_list.c",
     ],
     asm_srcs = AVCODEC_ASM_SRCS,
     copts = [
@@ -559,7 +560,6 @@ ffmpeg_library(
         "libavcodec/aarch64",  # For neon.S includes in .S files
         "libavfilter",
     ],
-    textual_hdrs = AVCODEC_PRIVATE_HDRS + AVCODEC_ASM_INCLUDE_FILES + glob(["libavfilter/*.h"]),
     deps = [
         ":avutil",
         ":swresample",
@@ -586,6 +586,11 @@ ffmpeg_library(
     hdrs = AVFORMAT_HDRS + glob(["libavutil/*.h"]) + [
         "config.h",
         "config_components.h",
+    ],
+    textual_hdrs = [
+        "libavformat/demuxer_list.c",
+        "libavformat/muxer_list.c",
+        "libavformat/protocol_list.c",
     ],
     copts = [
         "-DHAVE_AV_CONFIG_H",
@@ -620,11 +625,45 @@ AVFILTER_SRCS = glob(
         "libavfilter/tests/*.c",
         # Exclude disabled features
         "libavfilter/vulkan*.c",  # CONFIG_VULKAN=0
+        "libavfilter/vsrc_testsrc_vulkan.c",  # Vulkan-specific filter
+        "libavfilter/vf_bwdif_vulkan.c",      # Vulkan-specific filter
+        "libavfilter/vf_deinterlace_vulkan.c", # Vulkan-specific filter
+        "libavfilter/vf_scale_vulkan.c",      # Vulkan-specific filter
+        "libavfilter/vf_transpose_vulkan.c",  # Vulkan-specific filter
+        "libavfilter/vf_hflip_vulkan.c",      # Vulkan-specific filter
+        "libavfilter/vf_vflip_vulkan.c",      # Vulkan-specific filter
+        "libavfilter/vf_overlay_vulkan.c",    # Vulkan-specific filter
+        "libavfilter/vf_colorspace_vulkan.c", # Vulkan-specific filter
+        "libavfilter/vf_unsharp_vulkan.c",    # Vulkan-specific filter
+        "libavfilter/vf_gblur_vulkan.c",      # Vulkan-specific filter
+        "libavfilter/vf_convolution_vulkan.c", # Vulkan-specific filter
+        "libavfilter/vf_avgblur_vulkan.c",    # Vulkan-specific filter
+        "libavfilter/vf_tonemap_vulkan.c",    # Vulkan-specific filter
+        "libavfilter/vf_hqdn3d_vulkan.c",     # Vulkan-specific filter
+        "libavfilter/vf_nlmeans_vulkan.c",    # Vulkan-specific filter
+        "libavfilter/vf_bilateral_vulkan.c",  # Vulkan-specific filter
+        "libavfilter/vf_sobel_vulkan.c",      # Vulkan-specific filter
+        "libavfilter/vf_roberts_vulkan.c",    # Vulkan-specific filter
+        "libavfilter/vf_prewitt_vulkan.c",    # Vulkan-specific filter
+        "libavfilter/vf_laplacian_vulkan.c",  # Vulkan-specific filter
+        "libavfilter/vf_edgedetect_vulkan.c", # Vulkan-specific filter
+        "libavfilter/vf_erosion_vulkan.c",    # Vulkan-specific filter
+        "libavfilter/vf_dilation_vulkan.c",   # Vulkan-specific filter
+        "libavfilter/vf_morpho_vulkan.c",     # Vulkan-specific filter
+        "libavfilter/vf_mix_vulkan.c",        # Vulkan-specific filter
+        "libavfilter/vf_scale_cuda.c",        # CUDA-specific filter
+        "libavfilter/vf_scale_npp.c",         # NPP-specific filter
+        "libavfilter/vf_scale_qsv.c",         # QSV-specific filter
+        "libavfilter/vf_scale_vt.c",          # VideoToolbox-specific filter
+        "libavfilter/vf_scale_vaapi.c",       # VAAPI-specific filter
+        "libavfilter/vf_scale_vdpau.c",       # VDPAU-specific filter
+        "libavfilter/vf_scale_opencl.c",      # OpenCL-specific filter
+        # Windows-specific filters
+        "libavfilter/vsrc_ddagrab.c",         # Windows DirectDesktopGrab
     ],
 )
 
 AVFILTER_HDRS = glob(["libavfilter/*.h"])
-
 AVFILTER_TEMPLATE_HDRS = glob(["libavfilter/*_template.c"])  # Templates included by filters
 
 ffmpeg_library(
@@ -634,11 +673,13 @@ ffmpeg_library(
         "config.h",
         "config_components.h",
     ],
+    textual_hdrs = AVFILTER_TEMPLATE_HDRS + [
+        "libavfilter/filter_list.c",
+    ],
     copts = [
         "-DHAVE_AV_CONFIG_H",
     ],
     includes = ["libavfilter"],
-    textual_hdrs = AVFILTER_TEMPLATE_HDRS,
     deps = [
         ":avcodec",
         ":avformat",
@@ -732,6 +773,7 @@ ffmpeg_library(
         "config.h",
         "config_components.h",
     ],
+    textual_hdrs = AVDEVICE_LIST_FILES + AVDEVICE_INCLUDE_FILES + glob(["libavfilter/*.c"]),  # Included by alldevices.c and ccfifo.c
     copts = [
         "-DHAVE_AV_CONFIG_H",
     ],
@@ -746,16 +788,12 @@ ffmpeg_library(
         ],
         "//conditions:default": [],
     }),
-    textual_hdrs = AVDEVICE_LIST_FILES + AVDEVICE_INCLUDE_FILES + glob(["libavfilter/*.c"]),  # Included by alldevices.c and ccfifo.c
     deps = [
         ":avcodec",
         ":avfilter",
         ":avformat",
         ":avutil",
-    ] + select({
-        "@platforms//os:macos": [":avdevice_macos"],
-        "//conditions:default": [],
-    }),
+    ],
 )
 
 # ============================================================================
@@ -773,55 +811,30 @@ FFTOOLS_COMMON_HDRS = [
     "fftools/fopen_utf8.h",
 ]
 
-cc_library(
+ffmpeg_library(
     name = "fftools_common",
     srcs = FFTOOLS_COMMON_SRCS,
-    hdrs = FFTOOLS_COMMON_HDRS + glob(
-        [
-            "libavcodec/*.h",
-            "libavdevice/*.h",
-            "libavfilter/*.h",
-            "libavformat/*.h",
-            "libavutil/*.h",
-            "libavutil/ppc/*.h",
-            "libpostproc/*.h",
-            "libswresample/*.h",
-            "libswscale/*.h",
-        ],
-        exclude = [
-            "libavutil/hwcontext_vulkan.h",  # CONFIG_VULKAN=0
-            "libavutil/vulkan.h",  # CONFIG_VULKAN=0
-            "libavutil/vulkan_functions.h",  # CONFIG_VULKAN=0
-            "libavutil/vulkan_loader.h",  # CONFIG_VULKAN=0
-            "libavutil/vulkan_spirv.h",  # CONFIG_VULKAN=0
-        ],
-    ) + [
+    hdrs = FFTOOLS_COMMON_HDRS + glob([
+        "libavcodec/*.h",
+        "libavdevice/*.h",
+        "libavfilter/*.h",
+        "libavformat/*.h",
+        "libavutil/*.h",
+        "libavutil/ppc/*.h",
+        "libpostproc/*.h",
+        "libswresample/*.h",
+        "libswscale/*.h",
+    ], exclude = [
+        # Vulkan-related headers (CONFIG_VULKAN=0)
+        "libavutil/hwcontext_vulkan.h",
+        "libavutil/vulkan.h",
+        "libavutil/vulkan_functions.h",
+        "libavutil/vulkan_loader.h",
+        "libavutil/vulkan_spirv.h",
+    ]) + [
         "config.h",
         "config_components.h",
     ],
-    copts = select({
-        "@platforms//os:macos": [
-            "-D_DARWIN_C_SOURCE",
-            "-D_DEFAULT_SOURCE",
-            "-std=gnu11",
-            "-Wno-deprecated-declarations",
-            "-Wno-pointer-sign",
-            "-Wno-implicit-function-declaration",
-            "-Wno-error=implicit-function-declaration",
-            "-Wno-incompatible-pointer-types",
-            "-Wno-int-conversion",
-        ],
-        "//conditions:default": [
-            "-D_DEFAULT_SOURCE",
-            "-std=gnu11",
-            "-Wno-deprecated-declarations",
-            "-Wno-pointer-sign",
-            "-Wno-implicit-function-declaration",
-            "-Wno-error=implicit-function-declaration",
-            "-Wno-incompatible-pointer-types",
-            "-Wno-int-conversion",
-        ],
-    }),
     includes = [
         "fftools",
         "libavcodec",
@@ -850,22 +863,22 @@ cc_binary(
     name = "ffmpeg",
     srcs = [
         "fftools/ffmpeg.c",
-        "fftools/ffmpeg.h",
         "fftools/ffmpeg_dec.c",
         "fftools/ffmpeg_demux.c",
         "fftools/ffmpeg_enc.c",
         "fftools/ffmpeg_filter.c",
         "fftools/ffmpeg_hw.c",
         "fftools/ffmpeg_mux.c",
-        "fftools/ffmpeg_mux.h",
         "fftools/ffmpeg_mux_init.c",
         "fftools/ffmpeg_opt.c",
         "fftools/ffmpeg_sched.c",
+        "fftools/sync_queue.c",
+        "fftools/thread_queue.c",
+        "fftools/ffmpeg.h",
+        "fftools/ffmpeg_mux.h",
         "fftools/ffmpeg_sched.h",
         "fftools/ffmpeg_utils.h",
-        "fftools/sync_queue.c",
         "fftools/sync_queue.h",
-        "fftools/thread_queue.c",
         "fftools/thread_queue.h",
     ],
     copts = select({

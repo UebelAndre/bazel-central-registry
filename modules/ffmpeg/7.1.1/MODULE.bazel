@@ -6,13 +6,13 @@ module(
 )
 
 bazel_dep(name = "alsa_lib", version = "1.2.9.bcr.2")
-bazel_dep(name = "apple_support", version = "1.21.1")
 bazel_dep(name = "bazel_skylib", version = "1.8.2")
 bazel_dep(name = "bzip2", version = "1.0.8.bcr.2")
 bazel_dep(name = "openssl", version = "3.3.1.bcr.3")
 bazel_dep(name = "platforms", version = "1.0.0")
-bazel_dep(name = "rules_apple", version = "4.2.0")
 bazel_dep(name = "rules_cc", version = "0.2.4")
+bazel_dep(name = "rules_apple", version = "4.2.0")
+bazel_dep(name = "apple_support", version = "1.23.1")
 bazel_dep(name = "rules_nasm", version = "0.4.0")
 bazel_dep(name = "x264", version = "2023.10.1")
 bazel_dep(name = "x265", version = "4.1")
@@ -26,4 +26,9 @@ local_path_override(
 local_path_override(
     module_name = "x264",
     path = "../x264",
+)
+
+# Register toolchains
+register_toolchains(
+    "@rules_nasm//nasm/toolchain",
 )

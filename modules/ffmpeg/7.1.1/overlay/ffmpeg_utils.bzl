@@ -1,6 +1,6 @@
 """Utility functions for building FFmpeg with Bazel."""
 
-load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@bazel_skylib//lib:selects.bzl", "selects")
 
 def ffmpeg_library(
         name,
@@ -36,7 +36,11 @@ def ffmpeg_library(
     common_copts = select({
         "@platforms//os:macos": [
             "-D_DARWIN_C_SOURCE",  # Enable BSD extensions on macOS
-            "-D_DEFAULT_SOURCE",  # Enable all features including time_t
+            "-D_DEFAULT_SOURCE",   # Enable all features including time_t
+            "-D_ISOC11_SOURCE",    # C11 standard features
+            "-D_POSIX_C_SOURCE=200112",  # For time_t, struct tm, clock_t, CLOCKS_PER_SEC
+            "-D_XOPEN_SOURCE=600",        # For additional POSIX features
+            "-DCONFIG_VULKAN=0",          # Disable Vulkan support
             "-std=gnu11",
             "-Wno-deprecated-declarations",
             "-Wno-pointer-sign",
@@ -52,7 +56,11 @@ def ffmpeg_library(
             "-pthread",
         ] + copts,
         "//conditions:default": [
-            "-D_DEFAULT_SOURCE",  # Enable all features including time_t
+            "-D_DEFAULT_SOURCE",   # Enable all features including time_t
+            "-D_ISOC11_SOURCE",    # C11 standard features
+            "-D_POSIX_C_SOURCE=200112",  # For time_t, struct tm, clock_t, CLOCKS_PER_SEC
+            "-D_XOPEN_SOURCE=600",        # For additional POSIX features
+            "-DCONFIG_VULKAN=0",          # Disable Vulkan support
             "-std=gnu11",
             "-Wno-deprecated-declarations",
             "-Wno-pointer-sign",
@@ -69,10 +77,16 @@ def ffmpeg_library(
         ] + copts,
     })
 
-    # Combine sources with architecture-specific assembly
-    all_srcs = srcs + asm_srcs
+    # Architecture-specific sources using select
+    arch_srcs = select({
+        "@platforms//cpu:x86_64": nasm_srcs,  # Only include x86 assembly on x86_64
+        "//conditions:default": [],           # No x86 assembly on other architectures
+    })
 
-    cc_library(
+    # Combine sources with architecture-specific assembly
+    all_srcs = srcs + asm_srcs + arch_srcs
+
+    native.cc_library(
         name = name,
         srcs = all_srcs,
         hdrs = hdrs,
@@ -103,12 +117,12 @@ def glob_sources(
     pattern_prefix = base_path + "/**/" if include_subdirs else base_path + "/"
 
     return {
-        "hdrs": native.glob(
-            [pattern_prefix + "*.h"],
-            exclude = exclude,
-        ),
         "srcs": native.glob(
             [pattern_prefix + "*.c"],
+            exclude = exclude,
+        ),
+        "hdrs": native.glob(
+            [pattern_prefix + "*.h"],
             exclude = exclude,
         ),
     }

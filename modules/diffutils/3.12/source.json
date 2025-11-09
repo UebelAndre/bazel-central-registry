@@ -1,0 +1,13 @@
+{
+    "url": "https://mirrors.kernel.org/gnu/diffutils/diffutils-3.12.tar.xz",
+    "mirror_urls": [
+        "https://ftp.gnu.org/gnu/diffutils/diffutils-3.12.tar.xz",
+        "https://ftpmirror.gnu.org/gnu/diffutils/diffutils-3.12.tar.xz"
+    ],
+    "integrity": "sha256-m7oCFMz38QecXVkhAEUie89hlRmEDr+oDNOEnP9aW/I=",
+    "strip_prefix": "diffutils-3.12",
+    "overlay": {
+        "BUILD.bazel": "sha256-qZqTwtgWzEQFndWDyKmG4w6ovHTrq2l6R5/uROugXR8=",
+        "MODULE.bazel": "sha256-FF4Nk+KLXyAzhrZzrWl3mNwotr+Iq5OgVQfEdET2wNM="
+    }
+}

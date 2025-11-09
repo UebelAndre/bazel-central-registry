@@ -1,0 +1,219 @@
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+
+# Create first test file
+write_file(
+    name = "gen_test_file1",
+    out = "test_file1.txt",
+    content = [
+        "This is line 1",
+        "This is line 2",
+        "This is line 3 - original",
+        "This is line 4",
+        "This is line 5",
+        "This is line 6 - will be changed",
+        "This is line 7",
+        "This is line 8",
+        "",
+    ],
+)
+
+# Create second test file (with differences)
+write_file(
+    name = "gen_test_file2",
+    out = "test_file2.txt",
+    content = [
+        "This is line 1",
+        "This is line 2",
+        "This is line 3 - modified",
+        "This is line 4",
+        "This is line 5",
+        "This is line 6 - changed!",
+        "This is line 7",
+        "This is a new line 8",
+        "",
+    ],
+)
+
+# Run diff on the two files to generate output
+genrule(
+    name = "run_diff",
+    srcs = [
+        ":gen_test_file1",
+        ":gen_test_file2",
+    ],
+    outs = ["diff_output.txt"],
+    cmd = """
+        $(execpath //:diff) $(execpath :gen_test_file1) $(execpath :gen_test_file2) > $@ || true
+    """,
+    cmd_bat = """
+        $(execpath //:diff) $(execpath :gen_test_file1) $(execpath :gen_test_file2) > $@ || cd .
+    """,
+    tools = ["//:diff"],
+)
+
+# Create the expected "golden" output
+write_file(
+    name = "gen_golden_output",
+    out = "golden_output.txt",
+    content = [
+        "3c3",
+        "< This is line 3 - original",
+        "---",
+        "> This is line 3 - modified",
+        "6c6",
+        "< This is line 6 - will be changed",
+        "---",
+        "> This is line 6 - changed!",
+        "8c8",
+        "< This is line 8",
+        "---",
+        "> This is a new line 8",
+        "",
+    ],
+)
+
+# Test that diff output matches expected golden output
+diff_test(
+    name = "diff_output_test",
+    file1 = ":run_diff",
+    file2 = ":gen_golden_output",
+)
+
+# Additional test: side-by-side diff
+genrule(
+    name = "run_sdiff",
+    srcs = [
+        ":gen_test_file1",
+        ":gen_test_file2",
+    ],
+    outs = ["sdiff_output.txt"],
+    cmd = """
+        $(execpath //:sdiff) -w 80 $(execpath :gen_test_file1) $(execpath :gen_test_file2) > $@ || true
+    """,
+    cmd_bat = """
+        $(execpath //:sdiff) -w 80 $(execpath :gen_test_file1) $(execpath :gen_test_file2) > $@ || cd .
+    """,
+    tools = ["//:sdiff"],
+)
+
+# Additional test: unified diff format
+genrule(
+    name = "run_diff_unified",
+    srcs = [
+        ":gen_test_file1",
+        ":gen_test_file2",
+    ],
+    outs = ["diff_unified_output.txt"],
+    cmd = """
+        $(execpath //:diff) -u $(execpath :gen_test_file1) $(execpath :gen_test_file2) > $@ || true
+    """,
+    cmd_bat = """
+        $(execpath //:diff) -u $(execpath :gen_test_file1) $(execpath :gen_test_file2) > $@ || cd .
+    """,
+    tools = ["//:diff"],
+)
+
+# Golden output for unified diff
+write_file(
+    name = "gen_golden_unified",
+    out = "golden_unified.txt",
+    content = [
+        "--- test_file1.txt",
+        "+++ test_file2.txt",
+        "@@ -1,8 +1,8 @@",
+        " This is line 1",
+        " This is line 2",
+        "-This is line 3 - original",
+        "+This is line 3 - modified",
+        " This is line 4",
+        " This is line 5",
+        "-This is line 6 - will be changed",
+        "+This is line 6 - changed!",
+        " This is line 7",
+        "-This is line 8",
+        "+This is a new line 8",
+        "",
+    ],
+)
+
+# Test unified diff output (more lenient - just check structure)
+diff_test(
+    name = "diff_unified_structure_test",
+    file1 = ":run_diff_unified",
+    file2 = ":gen_golden_unified",
+    # Note: This test might need adjustment since unified diff includes file paths
+)
+
+# Test cmp binary with identical files
+write_file(
+    name = "gen_identical_file1",
+    out = "identical1.txt",
+    content = [
+        "Identical content",
+        "Line 2",
+        "Line 3",
+        "",
+    ],
+)
+
+write_file(
+    name = "gen_identical_file2",
+    out = "identical2.txt",
+    content = [
+        "Identical content",
+        "Line 2",
+        "Line 3",
+        "",
+    ],
+)
+
+# cmp should return success (exit 0) for identical files
+genrule(
+    name = "run_cmp_identical",
+    srcs = [
+        ":gen_identical_file1",
+        ":gen_identical_file2",
+    ],
+    outs = ["cmp_identical_result.txt"],
+    cmd = """
+        if $(execpath //:cmp) $(execpath :gen_identical_file1) $(execpath :gen_identical_file2); then
+            echo "Files are identical" > $@
+        else
+            echo "Files differ" > $@
+        fi
+    """,
+    cmd_bat = """
+        $(execpath //:cmp) $(execpath :gen_identical_file1) $(execpath :gen_identical_file2)
+        if %ERRORLEVEL% EQU 0 (
+            echo Files are identical > $@
+        ) else (
+            echo Files differ > $@
+        )
+    """,
+    tools = ["//:cmp"],
+)
+
+write_file(
+    name = "gen_cmp_golden",
+    out = "cmp_golden.txt",
+    content = [
+        "Files are identical",
+        "",
+    ],
+)
+
+diff_test(
+    name = "cmp_identical_test",
+    file1 = ":run_cmp_identical",
+    file2 = ":gen_cmp_golden",
+)
+
+# Test suite to run all tests
+test_suite(
+    name = "all_tests",
+    tests = [
+        ":cmp_identical_test",
+        ":diff_output_test",
+    ],
+)

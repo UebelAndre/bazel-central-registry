@@ -1,0 +1,289 @@
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+# Generate config.h with basic defines
+write_file(
+    name = "gen_config_h",
+    out = "lib/config.h",
+    content = """\
+/* Basic config.h for Bazel build */
+#define _GL_CONFIG_H_INCLUDED 1
+#define PACKAGE "diffutils"
+#define PACKAGE_NAME "diffutils"
+#define PACKAGE_STRING "diffutils 3.12"
+#define PACKAGE_VERSION "3.12"
+#define VERSION "3.12"
+#define PACKAGE_TARNAME "diffutils"
+#define PACKAGE_BUGREPORT "bug-diffutils@gnu.org"
+#define PACKAGE_URL "http://www.gnu.org/software/diffutils/"
+
+/* System headers */
+#define HAVE_ALLOCA 1
+#define HAVE_ALLOCA_H 1
+#define HAVE_DIRENT_H 1
+#define HAVE_ERRNO_H 1
+#define HAVE_FCNTL_H 1
+#define HAVE_INTTYPES_H 1
+#define HAVE_LIMITS_H 1
+#define HAVE_LOCALE_H 1
+#define HAVE_MEMORY_H 1
+#define HAVE_SIGNAL_H 1
+#define HAVE_STDDEF_H 1
+#define HAVE_STDINT_H 1
+#define HAVE_STDIO_H 1
+#define HAVE_STDLIB_H 1
+#define HAVE_STRING_H 1
+#define HAVE_STRINGS_H 1
+#define HAVE_SYS_STAT_H 1
+#define HAVE_SYS_TIME_H 1
+#define HAVE_SYS_TYPES_H 1
+#define HAVE_SYS_WAIT_H 1
+#define HAVE_TIME_H 1
+#define HAVE_UNISTD_H 1
+#define HAVE_UTIME_H 1
+#define HAVE_WCHAR_H 1
+#define HAVE_WCTYPE_H 1
+
+/* Functions */
+#define HAVE_CLOSEDIR 1
+#define HAVE_DUP2 1
+#define HAVE_FORK 1
+#define HAVE_GETCWD 1
+#define HAVE_GETPAGESIZE 1
+#define HAVE_GETTIMEOFDAY 1
+#define HAVE_LSTAT 1
+#define HAVE_MBRTOWC 1
+#define HAVE_MEMCHR 1
+#define HAVE_MEMSET 1
+#define HAVE_MKDIR 1
+#define HAVE_MKSTEMP 1
+#define HAVE_OPENDIR 1
+#define HAVE_READDIR 1
+#define HAVE_SETLOCALE 1
+#define HAVE_SETMODE 0
+#define HAVE_SIGACTION 1
+#define HAVE_STRCHR 1
+#define HAVE_STRERROR 1
+#define HAVE_STRRCHR 1
+#define HAVE_STRTOL 1
+#define HAVE_STRTOIMAX 1
+#define HAVE_VFORK 1
+#define HAVE_WAITPID 1
+
+/* Compiler features */
+#define HAVE_DECL_STRERROR_R 1
+#define HAVE_WORKING_FORK 1
+#define HAVE_WORKING_VFORK 1
+#define STDC_HEADERS 1
+
+/* Enable GNU extensions */
+#define _GNU_SOURCE 1
+
+/* Define to 1 if on MINIX. */
+#define _MINIX 0
+
+/* Define to 2 if the system does not provide POSIX.1 features except with
+   this defined. */
+#define _POSIX_1_SOURCE 2
+
+/* Define to 1 if you need to in order for 'stat' and other things to work. */
+#define _POSIX_SOURCE 1
+
+/* System characteristics */
+#define HAVE_STRUCT_STAT_ST_BLKSIZE 1
+#define HAVE_STRUCT_STAT_ST_BLOCKS 1
+
+/* Use binary I/O on systems that care about it */
+#define __USE_MINGW_ANSI_STDIO 0
+""".splitlines(),
+    newline = "unix",
+)
+
+# Gnulib library - provides portability functions
+cc_library(
+    name = "diffutils",
+    srcs = glob(
+        include = [
+            "lib/**/*.c",
+        ],
+        exclude = [
+            "lib/**/*-tests.c",
+            "lib/glthread/**",
+            "lib/malloc/**",
+            "lib/config.h",
+        ],
+    ) + [
+        "lib/glthread/lock.c",
+        "lib/glthread/once.c",
+        "lib/glthread/threadlib.c",
+        "lib/malloc/dynarray_at_failure.c",
+        "lib/malloc/dynarray_emplace_enlarge.c",
+        "lib/malloc/dynarray_finalize.c",
+        "lib/malloc/dynarray_resize.c",
+        "lib/malloc/dynarray_resize_clear.c",
+        ":gen_config_h",
+    ],
+    hdrs = glob(
+        include = [
+            "lib/**/*.h",
+        ],
+        exclude = ["lib/config.h"],
+    ) + [":gen_config_h"],
+    includes = ["lib"],
+    local_defines = ["HAVE_CONFIG_H"],
+    textual_hdrs = glob([
+        "lib/**/*.in.h",
+    ]),
+    visibility = ["//visibility:public"],
+)
+
+# Version library
+write_file(
+    name = "gen_version_c",
+    out = "src/version.c",
+    content = """\
+#include <config.h>
+#include <version.h>
+char const *Version = "3.12";
+""".splitlines(),
+    newline = "unix",
+)
+
+write_file(
+    name = "gen_version_h",
+    out = "src/version.h",
+    content = """\
+extern char const *Version;
+""".splitlines(),
+    newline = "unix",
+)
+
+write_file(
+    name = "gen_paths_h",
+    out = "src/paths.h",
+    content = """\
+#define DEFAULT_DIFF_PROGRAM "diff"
+#define LOCALEDIR "/usr/local/share/locale"
+""".splitlines(),
+    newline = "unix",
+)
+
+cc_library(
+    name = "ver",
+    srcs = [":gen_version_c"],
+    hdrs = [":gen_version_h"],
+    includes = [
+        "lib",
+        "src",
+    ],
+    local_defines = ["HAVE_CONFIG_H"],
+    deps = [":diffutils"],
+)
+
+# Common sources shared by all binaries
+cc_library(
+    name = "system",
+    srcs = [
+        "src/system.c",
+    ],
+    hdrs = [
+        "src/system.h",
+        ":gen_paths_h",
+    ],
+    includes = [
+        "lib",
+        "src",
+    ],
+    local_defines = ["HAVE_CONFIG_H"],
+    deps = [
+        ":diffutils",
+        ":ver",
+    ],
+)
+
+# cmp binary
+cc_binary(
+    name = "cmp",
+    srcs = [
+        "src/cmp.c",
+    ],
+    defines = ["HAVE_CONFIG_H"],
+    includes = [
+        "lib",
+        "src",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":diffutils",
+        ":system",
+        ":ver",
+    ],
+)
+
+# diff binary
+cc_binary(
+    name = "diff",
+    srcs = [
+        "src/analyze.c",
+        "src/context.c",
+        "src/diff.c",
+        "src/diff.h",
+        "src/dir.c",
+        "src/ed.c",
+        "src/ifdef.c",
+        "src/io.c",
+        "src/normal.c",
+        "src/side.c",
+        "src/util.c",
+    ],
+    defines = ["HAVE_CONFIG_H"],
+    includes = [
+        "lib",
+        "src",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":diffutils",
+        ":system",
+        ":ver",
+    ],
+)
+
+# diff3 binary
+cc_binary(
+    name = "diff3",
+    srcs = [
+        "src/diff3.c",
+    ],
+    defines = ["HAVE_CONFIG_H"],
+    includes = [
+        "lib",
+        "src",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":diffutils",
+        ":system",
+        ":ver",
+    ],
+)
+
+# sdiff binary
+cc_binary(
+    name = "sdiff",
+    srcs = [
+        "src/sdiff.c",
+    ],
+    defines = ["HAVE_CONFIG_H"],
+    includes = [
+        "lib",
+        "src",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":diffutils",
+        ":system",
+        ":ver",
+    ],
+)

@@ -3,7 +3,7 @@
     "integrity": "sha256-BribXydX0hB3YdZYabmMPscePIx+LLKrSSd/MnIETwI=",
     "strip_prefix": "modern-cpp-kafka-2024.07.03",
     "overlay": {
-        "MODULE.bazel": "sha256-1z38TigCFahPHhfhQNehfH9sEcYlLjk9vjwOVWz0Q6w=",
+        "MODULE.bazel": "sha256-8c3x8L9CWxx4W3vBtftGx/LSSzRMjcSn2DecMz0P4mQ=",
         "test/MODULE.bazel": "sha256-cgl5Ayi7P+9UTkVPXzwIxZ7YiptTvf9JUOU+K3sk8u0="
     },
     "patch_strip": 0,

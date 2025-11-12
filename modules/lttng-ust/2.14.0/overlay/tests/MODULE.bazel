@@ -1,0 +1,12 @@
+module(
+    name = "lttng-ust-tests",
+    version = "2.14.0",
+    bazel_compatibility = [">=7.2.1"],
+)
+
+bazel_dep(name = "rules_cc", version = "0.2.4")
+bazel_dep(name = "lttng-ust", version = "0.0.0")
+local_path_override(
+    module_name = "lttng-ust",
+    path = "../",
+)

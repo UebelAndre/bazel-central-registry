@@ -1,0 +1,719 @@
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+licenses(["notice"])  # LGPL-2.1
+
+# Configuration defines
+COMMON_DEFINES = [
+    "_GNU_SOURCE",
+    "LTTNG_UST_MAJOR_VERSION=2",
+    "LTTNG_UST_MINOR_VERSION=14",
+    "LTTNG_UST_PATCHLEVEL_VERSION=0",
+    'LTTNG_SYSTEM_RUNDIR=\\"/var/run/lttng\\"',
+]
+
+# Common compiler options
+COMMON_COPTS = select({
+    "@platforms//cpu:aarch64": [
+        "-std=gnu99",
+        "-fno-strict-aliasing",
+        "-Wall",
+        "-Wextra",
+        "-Wmissing-prototypes",
+        "-Wmissing-declarations",
+        "-Wnull-dereference",
+        "-Wundef",
+        "-Wshadow",
+        "-Wno-sign-compare",
+        "-Wno-missing-field-initializers",
+        "-fPIC",
+        "-D_LGPL_SOURCE",  # Required for urcu
+        "-march=armv8-a",  # Enable ARM64 atomics for urcu
+        "-D__GCC_HAVE_SYNC_COMPARE_AND_SWAP_1",
+        "-D__GCC_HAVE_SYNC_COMPARE_AND_SWAP_2",
+        "-D__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4",
+        "-D__GCC_HAVE_SYNC_COMPARE_AND_SWAP_8",
+    ],
+    "//conditions:default": [
+        "-std=gnu99",
+        "-fno-strict-aliasing",
+        "-Wall",
+        "-Wextra",
+        "-Wmissing-prototypes",
+        "-Wmissing-declarations",
+        "-Wnull-dereference",
+        "-Wundef",
+        "-Wshadow",
+        "-Wno-sign-compare",
+        "-Wno-missing-field-initializers",
+        "-fPIC",
+        "-D_LGPL_SOURCE",  # Required for urcu
+        "-D__GCC_HAVE_SYNC_COMPARE_AND_SWAP_1",
+        "-D__GCC_HAVE_SYNC_COMPARE_AND_SWAP_2",
+        "-D__GCC_HAVE_SYNC_COMPARE_AND_SWAP_4",
+        "-D__GCC_HAVE_SYNC_COMPARE_AND_SWAP_8",
+    ],
+})
+
+# Common includes for all targets
+COMMON_INCLUDES = [
+    "include",
+    "src",
+    "src/common",
+]
+
+###############################################################################
+# Generated configuration headers
+###############################################################################
+
+# Generate ust-config.h from template
+write_file(
+    name = "gen_ust_config_h",
+    out = "include/lttng/ust-config.h",
+    content = [
+        "/*",
+        " * lttng/ust-config.h",
+        " *",
+        " * Configuration header for LTTng-UST - generated for Bazel build",
+        " */",
+        "",
+        "#ifndef _LTTNG_UST_CONFIG_H",
+        "#define _LTTNG_UST_CONFIG_H",
+        "",
+        "/* LTTng-UST configuration */",
+        "#define LTTNG_UST_HAVE_EFFICIENT_UNALIGNED_ACCESS 1",
+        "#define LTTNG_UST_HAVE_SDT_INTEGRATION 0",
+        "#define LTTNG_UST_HAVE_PERF_EVENT 1",
+        "",
+        "#endif /* _LTTNG_UST_CONFIG_H */",
+        "",
+    ],
+    newline = "unix",
+)
+
+# Generate ust-version.h
+write_file(
+    name = "gen_ust_version_h",
+    out = "include/lttng/ust-version.h",
+    content = [
+        "/*",
+        " * lttng/ust-version.h",
+        " *",
+        " * Version information for LTTng-UST - generated for Bazel build",
+        " */",
+        "",
+        "#ifndef _LTTNG_UST_VERSION_H",
+        "#define _LTTNG_UST_VERSION_H",
+        "",
+        "#define LTTNG_UST_MAJOR_VERSION 2",
+        "#define LTTNG_UST_MINOR_VERSION 14",
+        "#define LTTNG_UST_PATCHLEVEL_VERSION 0",
+        '#define LTTNG_UST_VERSION "2.14.0"',
+        "#define LTTNG_UST_LIB_SONAME_MAJOR 1",
+        "#define LTTNG_UST_CTL_LIB_SONAME_MAJOR 6",
+        "",
+        "#endif /* _LTTNG_UST_VERSION_H */",
+        "",
+    ],
+    newline = "unix",
+)
+
+###############################################################################
+# Internal convenience libraries (not exported)
+###############################################################################
+
+# libsnprintf - Signal-safe snprintf implementation
+cc_library(
+    name = "snprintf",
+    srcs = [
+        "src/common/snprintf/fflush.c",
+        "src/common/snprintf/fvwrite.c",
+        "src/common/snprintf/mbrtowc_sb.c",
+        "src/common/snprintf/snprintf.c",
+        "src/common/snprintf/vfprintf.c",
+        "src/common/snprintf/wsetup.c",
+    ],
+    hdrs = [
+        "src/common/safe-snprintf.h",
+        "src/common/snprintf/fileext.h",
+        "src/common/snprintf/floatio.h",
+        "src/common/snprintf/fvwrite.h",
+        "src/common/snprintf/local.h",
+        "src/common/snprintf/various.h",
+        "src/common/snprintf/wcio.h",
+    ],
+    copts = COMMON_COPTS,
+    includes = COMMON_INCLUDES,
+    local_defines = COMMON_DEFINES,
+)
+
+# libmsgpack - MessagePack implementation
+cc_library(
+    name = "msgpack",
+    srcs = [
+        "src/common/msgpack/msgpack.c",
+        ":gen_ust_config_h",
+    ],
+    hdrs = [
+        "include/lttng/ust-endian.h",
+        "src/common/msgpack/msgpack.h",
+    ],
+    copts = COMMON_COPTS + ["-DUST_COMPONENT=\\\"libmsgpack\\\""],
+    includes = COMMON_INCLUDES,
+    local_defines = COMMON_DEFINES,
+)
+
+# libringbuffer - Ring buffer implementation
+cc_library(
+    name = "ringbuffer",
+    srcs = [
+        "src/common/ringbuffer/ring_buffer_backend.c",
+        "src/common/ringbuffer/ring_buffer_frontend.c",
+        "src/common/ringbuffer/shm.c",
+        ":gen_ust_config_h",
+    ],
+    hdrs = [
+        "src/common/ringbuffer/api.h",
+        "src/common/ringbuffer/backend.h",
+        "src/common/ringbuffer/backend_internal.h",
+        "src/common/ringbuffer/backend_types.h",
+        "src/common/ringbuffer/frontend.h",
+        "src/common/ringbuffer/frontend_api.h",
+        "src/common/ringbuffer/frontend_internal.h",
+        "src/common/ringbuffer/frontend_types.h",
+        "src/common/ringbuffer/nohz.h",
+        "src/common/ringbuffer/rb-init.h",
+        "src/common/ringbuffer/ringbuffer-config.h",
+        "src/common/ringbuffer/shm.h",
+        "src/common/ringbuffer/shm_internal.h",
+        "src/common/ringbuffer/shm_types.h",
+        "src/common/ringbuffer/vatomic.h",
+    ],
+    copts = COMMON_COPTS + ["-DUST_COMPONENT=\\\"libringbuffer\\\""],
+    includes = COMMON_INCLUDES,
+    linkopts = ["-lrt"],
+    local_defines = COMMON_DEFINES,
+    deps = [
+        ":common",
+        "@userspace_rcu//:urcu",
+    ],
+)
+
+# libringbuffer-clients - Ring buffer client implementations
+cc_library(
+    name = "ringbuffer-clients",
+    srcs = [
+        "src/common/ringbuffer-clients/clients.c",
+        "src/common/ringbuffer-clients/discard.c",
+        "src/common/ringbuffer-clients/discard-channel.c",
+        "src/common/ringbuffer-clients/discard-channel-rt.c",
+        "src/common/ringbuffer-clients/discard-rt.c",
+        "src/common/ringbuffer-clients/metadata.c",
+        "src/common/ringbuffer-clients/overwrite.c",
+        "src/common/ringbuffer-clients/overwrite-channel.c",
+        "src/common/ringbuffer-clients/overwrite-channel-rt.c",
+        "src/common/ringbuffer-clients/overwrite-rt.c",
+    ],
+    hdrs = [
+        "src/common/ringbuffer-clients/clients.h",
+        "src/common/ringbuffer-clients/metadata-template.h",
+        "src/common/ringbuffer-clients/template.h",
+    ],
+    copts = COMMON_COPTS + ["-DUST_COMPONENT=\\\"libringbuffer-clients\\\""],
+    includes = COMMON_INCLUDES,
+    local_defines = COMMON_DEFINES,
+    deps = [
+        ":ringbuffer",
+        "@userspace_rcu//:urcu",
+    ],
+)
+
+# libcounter - Counter implementation
+cc_library(
+    name = "counter",
+    srcs = [
+        "src/common/counter/counter.c",
+        "src/common/counter/shm.c",
+        ":gen_ust_config_h",
+    ],
+    hdrs = [
+        "src/common/counter/counter.h",
+        "src/common/counter/counter-api.h",
+        "src/common/counter/counter-config.h",
+        "src/common/counter/counter-internal.h",
+        "src/common/counter/counter-types.h",
+        "src/common/counter/shm.h",
+        "src/common/counter/shm_internal.h",
+        "src/common/counter/shm_types.h",
+    ],
+    copts = COMMON_COPTS + ["-DUST_COMPONENT=\\\"libcounter\\\""],
+    includes = COMMON_INCLUDES,
+    linkopts = ["-lrt"],
+    local_defines = COMMON_DEFINES,
+    deps = [
+        ":common",
+        "@userspace_rcu//:urcu",
+    ],
+)
+
+# libcounter-clients - Counter client implementations
+cc_library(
+    name = "counter-clients",
+    srcs = [
+        "src/common/counter-clients/clients.c",
+        "src/common/counter-clients/percpu-32-modular.c",
+        "src/common/counter-clients/percpu-64-modular.c",
+        ":gen_ust_config_h",
+    ],
+    hdrs = ["src/common/counter-clients/clients.h"],
+    copts = COMMON_COPTS + ["-DUST_COMPONENT=\\\"libcounter-clients\\\""],
+    includes = COMMON_INCLUDES,
+    local_defines = COMMON_DEFINES,
+    deps = [
+        ":counter",
+        "@userspace_rcu//:urcu",
+    ],
+)
+
+# libcommon - Common utility functions
+cc_library(
+    name = "common",
+    srcs = [
+        "src/common/core.c",
+        "src/common/dynamic-type.c",
+        "src/common/elf.c",
+        "src/common/events.c",
+        "src/common/getenv.c",
+        "src/common/logging.c",
+        "src/common/patient.c",
+        "src/common/populate.c",
+        "src/common/smp.c",
+        "src/common/strutils.c",
+        "src/common/utils.c",
+        ":gen_ust_config_h",
+    ],
+    hdrs = [
+        "include/lttng/ust-abi.h",
+        "include/lttng/ust-abi-old.h",
+        "include/lttng/ust-arch.h",
+        "include/lttng/ust-clock.h",
+        "include/lttng/ust-compiler.h",
+        "include/lttng/ust-endian.h",
+        "include/lttng/ust-error.h",
+        "include/lttng/ust-events.h",
+        "include/lttng/ust-ringbuffer-context.h",
+        "include/lttng/ust-tracer.h",
+        "include/lttng/ust-utils.h",
+        "src/common/align.h",
+        "src/common/bitfield.h",
+        "src/common/bitmap.h",
+        "src/common/clock.h",
+        "src/common/compat/dlfcn.h",
+        "src/common/compat/errno.h",
+        "src/common/compat/mmap.h",
+        "src/common/compat/pthread.h",
+        "src/common/compat/tid.h",
+        "src/common/creds.h",
+        "src/common/dynamic-type.h",
+        "src/common/elf.h",
+        "src/common/err-ptr.h",
+        "src/common/events.h",
+        "src/common/getcpu.h",
+        "src/common/getenv.h",
+        "src/common/hash.h",
+        "src/common/jhash.h",
+        "src/common/logging.h",
+        "src/common/macros.h",
+        "src/common/ns.h",
+        "src/common/patient.h",
+        "src/common/populate.h",
+        "src/common/procname.h",
+        "src/common/safe-snprintf.h",
+        "src/common/smp.h",
+        "src/common/strutils.h",
+        "src/common/tracepoint.h",
+        "src/common/tracer.h",
+        "src/common/ust-context-provider.h",
+        "src/common/ust-fd.h",
+        "src/common/utils.h",
+        "src/common/wait.h",
+        ":gen_ust_config_h",
+        ":gen_ust_version_h",
+    ],
+    copts = COMMON_COPTS,
+    includes = COMMON_INCLUDES,
+    local_defines = COMMON_DEFINES,
+    deps = [
+        ":msgpack",
+        ":snprintf",
+        "@userspace_rcu//:urcu",
+    ],
+)
+
+# libustcomm - Communication library
+cc_library(
+    name = "ustcomm",
+    srcs = [
+        "src/common/ustcomm.c",
+        ":gen_ust_config_h",
+    ],
+    hdrs = [
+        "include/lttng/ust-ctl.h",
+        "include/lttng/ust-sigbus.h",
+        "src/common/ustcomm.h",
+    ],
+    copts = COMMON_COPTS,
+    includes = COMMON_INCLUDES,
+    local_defines = COMMON_DEFINES,
+    deps = [":common"],
+)
+
+# liblttng-ust-common - Common UST functionality
+cc_library(
+    name = "lttng-ust-common",
+    srcs = [
+        "src/lib/lttng-ust-common/clock.c",
+        "src/lib/lttng-ust-common/fd-tracker.c",
+        "src/lib/lttng-ust-common/getcpu.c",
+        "src/lib/lttng-ust-common/lttng-ust-urcu.c",
+        "src/lib/lttng-ust-common/lttng-ust-urcu-pointer.c",
+        "src/lib/lttng-ust-common/ust-cancelstate.c",
+        "src/lib/lttng-ust-common/ust-common.c",
+    ],
+    hdrs = [
+        "src/lib/lttng-ust-common/clock.h",
+        "src/lib/lttng-ust-common/fd-tracker.h",
+        "src/lib/lttng-ust-common/getcpu.h",
+    ],
+    copts = COMMON_COPTS,
+    includes = COMMON_INCLUDES,
+    linkopts = ["-ldl"],
+    local_defines = COMMON_DEFINES,
+    deps = [
+        ":common",
+        "@userspace_rcu//:urcu",
+    ],
+)
+
+# liblttng-ust-tracepoint - Tracepoint library
+cc_library(
+    name = "lttng-ust-tracepoint",
+    srcs = [
+        "src/lib/lttng-ust-tracepoint/tracepoint.c",
+        "src/lib/lttng-ust-tracepoint/tracepoint-weak-test.c",
+    ],
+    hdrs = [
+        "include/lttng/tp/lttng-ust-tracef.h",
+        "include/lttng/tp/lttng-ust-tracelog.h",
+        "include/lttng/tracef.h",
+        "include/lttng/tracelog.h",
+        "include/lttng/tracepoint.h",
+        "include/lttng/tracepoint-event.h",
+        "include/lttng/tracepoint-rcu.h",
+        "include/lttng/tracepoint-types.h",
+        "include/lttng/ust-tracepoint-event.h",
+        "include/lttng/ust-tracepoint-event-nowrite.h",
+        "include/lttng/ust-tracepoint-event-reset.h",
+        "include/lttng/ust-tracepoint-event-write.h",
+        "src/lib/lttng-ust-tracepoint/tracepoint.h",
+    ],
+    copts = COMMON_COPTS + ["-DUST_COMPONENT=\\\"liblttng_ust_tracepoint\\\""],
+    includes = COMMON_INCLUDES,
+    linkopts = ["-ldl"],
+    local_defines = COMMON_DEFINES,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":common",
+        ":lttng-ust-common",
+        "@userspace_rcu//:urcu",
+    ],
+)
+
+# liblttng-ust - Main UST library
+cc_library(
+    name = "lttng-ust",
+    srcs = [
+        "src/lib/lttng-ust/event-notifier-notification.c",
+        "src/lib/lttng-ust/futex.c",
+        "src/lib/lttng-ust/lttng-bytecode.c",
+        "src/lib/lttng-ust/lttng-bytecode-interpreter.c",
+        "src/lib/lttng-ust/lttng-bytecode-specialize.c",
+        "src/lib/lttng-ust/lttng-bytecode-validator.c",
+        "src/lib/lttng-ust/lttng-context.c",
+        "src/lib/lttng-ust/lttng-context-cgroup-ns.c",
+        "src/lib/lttng-ust/lttng-context-cpu-id.c",
+        "src/lib/lttng-ust/lttng-context-ip.c",
+        "src/lib/lttng-ust/lttng-context-ipc-ns.c",
+        "src/lib/lttng-ust/lttng-context-mnt-ns.c",
+        "src/lib/lttng-ust/lttng-context-net-ns.c",
+        "src/lib/lttng-ust/lttng-context-perf-counters.c",
+        "src/lib/lttng-ust/lttng-context-pid-ns.c",
+        "src/lib/lttng-ust/lttng-context-procname.c",
+        "src/lib/lttng-ust/lttng-context-provider.c",
+        "src/lib/lttng-ust/lttng-context-pthread-id.c",
+        "src/lib/lttng-ust/lttng-context-time-ns.c",
+        "src/lib/lttng-ust/lttng-context-user-ns.c",
+        "src/lib/lttng-ust/lttng-context-uts-ns.c",
+        "src/lib/lttng-ust/lttng-context-vegid.c",
+        "src/lib/lttng-ust/lttng-context-veuid.c",
+        "src/lib/lttng-ust/lttng-context-vgid.c",
+        "src/lib/lttng-ust/lttng-context-vpid.c",
+        "src/lib/lttng-ust/lttng-context-vsgid.c",
+        "src/lib/lttng-ust/lttng-context-vsuid.c",
+        "src/lib/lttng-ust/lttng-context-vtid.c",
+        "src/lib/lttng-ust/lttng-context-vuid.c",
+        "src/lib/lttng-ust/lttng-events.c",
+        "src/lib/lttng-ust/lttng-probes.c",
+        "src/lib/lttng-ust/lttng-ust-abi.c",
+        "src/lib/lttng-ust/lttng-ust-comm.c",
+        "src/lib/lttng-ust/lttng-ust-statedump.c",
+        "src/lib/lttng-ust/rculfhash.c",
+        "src/lib/lttng-ust/rculfhash-mm-chunk.c",
+        "src/lib/lttng-ust/rculfhash-mm-mmap.c",
+        "src/lib/lttng-ust/rculfhash-mm-order.c",
+        "src/lib/lttng-ust/strerror.c",
+        "src/lib/lttng-ust/tracef.c",
+        "src/lib/lttng-ust/tracelog.c",
+        "src/lib/lttng-ust/ust_lib.c",
+    ],
+    hdrs = [
+        "include/lttng/urcu/pointer.h",
+        "include/lttng/urcu/static/pointer.h",
+        "include/lttng/urcu/static/urcu-ust.h",
+        "include/lttng/urcu/urcu-ust.h",
+        "include/lttng/ust-abi.h",
+        "include/lttng/ust-abi-old.h",
+        "include/lttng/ust-api-compat.h",
+        "include/lttng/ust-arch.h",
+        "include/lttng/ust-cancelstate.h",
+        "include/lttng/ust-clock.h",
+        "include/lttng/ust-common.h",
+        "include/lttng/ust-compiler.h",
+        "include/lttng/ust-ctl.h",
+        "include/lttng/ust-endian.h",
+        "include/lttng/ust-error.h",
+        "include/lttng/ust-events.h",
+        "include/lttng/ust-fork.h",
+        "include/lttng/ust-getcpu.h",
+        "include/lttng/ust-libc-wrapper.h",
+        "include/lttng/ust-ringbuffer-context.h",
+        "include/lttng/ust-sigbus.h",
+        "include/lttng/ust-thread.h",
+        "include/lttng/ust-tracer.h",
+        "include/lttng/ust-utils.h",
+        "src/lib/lttng-ust/bytecode.h",
+        "src/lib/lttng-ust/context-internal.h",
+        "src/lib/lttng-ust/context-provider-internal.h",
+        "src/lib/lttng-ust/events.h",
+        "src/lib/lttng-ust/futex.h",
+        "src/lib/lttng-ust/lttng-bytecode.h",
+        "src/lib/lttng-ust/lttng-tracer-core.h",
+        "src/lib/lttng-ust/lttng-ust-statedump.h",
+        "src/lib/lttng-ust/lttng-ust-statedump-provider.h",
+        "src/lib/lttng-ust/lttng-ust-tracef-provider.h",
+        "src/lib/lttng-ust/lttng-ust-tracelog-provider.h",
+        "src/lib/lttng-ust/perf_event.h",
+        "src/lib/lttng-ust/rculfhash.h",
+        "src/lib/lttng-ust/rculfhash-internal.h",
+        "src/lib/lttng-ust/tracelog-internal.h",
+        "src/lib/lttng-ust/ust_lib.h",
+    ],
+    copts = COMMON_COPTS + ["-DUST_COMPONENT=\\\"liblttng_ust\\\""],
+    includes = COMMON_INCLUDES,
+    linkopts = [
+        "-lrt",
+        "-ldl",
+        "-lpthread",
+    ],
+    local_defines = COMMON_DEFINES,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":common",
+        ":counter",
+        ":counter-clients",
+        ":lttng-ust-common",
+        ":lttng-ust-tracepoint",
+        ":ringbuffer",
+        ":ringbuffer-clients",
+        ":ustcomm",
+        "@userspace_rcu//:urcu",
+    ],
+)
+
+# liblttng-ust-ctl - Control library
+cc_library(
+    name = "lttng-ust-ctl",
+    srcs = [
+        "src/lib/lttng-ust-ctl/ustctl.c",
+    ],
+    hdrs = [
+        "include/lttng/ust-ctl.h",
+    ],
+    copts = COMMON_COPTS,
+    includes = COMMON_INCLUDES,
+    linkopts = ["-lrt"],
+    local_defines = COMMON_DEFINES,
+    deps = [
+        ":common",
+        ":counter",
+        ":lttng-ust",
+        ":lttng-ust-common",
+        ":ringbuffer",
+    ],
+)
+
+# liblttng-ust-fork - Fork wrapper library
+cc_library(
+    name = "lttng-ust-fork",
+    srcs = [
+        "src/lib/lttng-ust-fork/ustfork.c",
+    ],
+    hdrs = [
+        "include/lttng/ust-fork.h",
+    ],
+    copts = COMMON_COPTS,
+    includes = COMMON_INCLUDES,
+    linkopts = ["-ldl"],
+    local_defines = COMMON_DEFINES,
+    visibility = ["//visibility:public"],
+    deps = [
+        ":lttng-ust",
+        ":lttng-ust-common",
+    ],
+)
+
+# liblttng-ust-dl - Dynamic linker instrumentation
+cc_library(
+    name = "lttng-ust-dl",
+    srcs = [
+        "src/lib/lttng-ust-dl/lttng-ust-dl.c",
+        "src/lib/lttng-ust-dl/ust_dl.c",
+    ],
+    hdrs = [
+        "src/lib/lttng-ust-dl/ust_dl.h",
+    ],
+    copts = COMMON_COPTS,
+    includes = COMMON_INCLUDES,
+    linkopts = ["-ldl"],
+    local_defines = COMMON_DEFINES,
+    deps = [
+        ":lttng-ust",
+    ],
+)
+
+# liblttng-ust-fd - File descriptor tracking
+cc_library(
+    name = "lttng-ust-fd",
+    srcs = [
+        "src/lib/lttng-ust-fd/lttng-ust-fd.c",
+    ],
+    copts = COMMON_COPTS,
+    includes = COMMON_INCLUDES,
+    local_defines = COMMON_DEFINES,
+    deps = [
+        ":common",
+        ":lttng-ust-common",
+    ],
+)
+
+# liblttng-ust-cyg-profile - GCC cyg-profile instrumentation
+cc_library(
+    name = "lttng-ust-cyg-profile",
+    srcs = [
+        "src/lib/lttng-ust-cyg-profile/lttng-ust-cyg-profile.c",
+    ],
+    hdrs = [
+        "src/lib/lttng-ust-cyg-profile/lttng-ust-cyg-profile.h",
+    ],
+    copts = COMMON_COPTS,
+    includes = COMMON_INCLUDES,
+    local_defines = COMMON_DEFINES,
+    deps = [":lttng-ust"],
+)
+
+# liblttng-ust-cyg-profile-fast - Fast GCC cyg-profile instrumentation
+cc_library(
+    name = "lttng-ust-cyg-profile-fast",
+    srcs = [
+        "src/lib/lttng-ust-cyg-profile/lttng-ust-cyg-profile-fast.c",
+    ],
+    hdrs = [
+        "src/lib/lttng-ust-cyg-profile/lttng-ust-cyg-profile-fast.h",
+    ],
+    copts = COMMON_COPTS,
+    includes = COMMON_INCLUDES,
+    local_defines = COMMON_DEFINES,
+    deps = [":lttng-ust"],
+)
+
+# liblttng-ust-libc-wrapper - libc wrapper for malloc/free tracing
+cc_library(
+    name = "lttng-ust-libc-wrapper",
+    srcs = [
+        "src/lib/lttng-ust-libc-wrapper/lttng-ust-malloc.c",
+    ],
+    hdrs = [
+        "include/lttng/ust-libc-wrapper.h",
+        "src/lib/lttng-ust-libc-wrapper/ust_libc.h",
+    ],
+    copts = COMMON_COPTS,
+    includes = COMMON_INCLUDES,
+    linkopts = ["-ldl"],
+    local_defines = COMMON_DEFINES,
+    deps = [":lttng-ust"],
+)
+
+# liblttng-ust-pthread-wrapper - pthread wrapper for thread tracing
+cc_library(
+    name = "lttng-ust-pthread-wrapper",
+    srcs = [
+        "src/lib/lttng-ust-pthread-wrapper/lttng-ust-pthread.c",
+    ],
+    hdrs = [
+        "src/lib/lttng-ust-pthread-wrapper/ust_pthread.h",
+    ],
+    copts = COMMON_COPTS,
+    includes = COMMON_INCLUDES,
+    linkopts = ["-lpthread"],
+    local_defines = COMMON_DEFINES,
+    deps = [":lttng-ust"],
+)
+
+# liblttng-ust-python-agent - Python agent
+cc_library(
+    name = "lttng-ust-python-agent",
+    srcs = [
+        "src/lib/lttng-ust-python-agent/lttng_ust_python.c",
+    ],
+    hdrs = [
+        "src/lib/lttng-ust-python-agent/lttng_ust_python.h",
+    ],
+    copts = COMMON_COPTS,
+    includes = COMMON_INCLUDES,
+    local_defines = COMMON_DEFINES,
+    deps = [":lttng-ust"],
+)
+
+# Export all public headers
+cc_library(
+    name = "headers",
+    hdrs = glob([
+        "include/lttng/*.h",
+        "include/lttng/**/*.h",
+    ]),
+    includes = ["include"],
+    visibility = ["//visibility:public"],
+)
+
+# Aliases for public interfaces
+alias(
+    name = "fork",
+    actual = ":lttng-ust-fork",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "tracepoint",
+    actual = ":lttng-ust-tracepoint",
+    visibility = ["//visibility:public"],
+)

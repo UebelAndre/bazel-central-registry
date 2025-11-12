@@ -1,0 +1,11 @@
+{
+    "url": "https://lttng.org/files/lttng-ust/lttng-ust-2.14.0.tar.bz2",
+    "strip_prefix": "lttng-tools-2.14.0",
+    "integrity": "sha256-gs39MEu7Kyt9F8yVGmdWs3qfc4aOwLp9tEig1cpRt2M=",
+    "overlay": {
+        "BUILD.bazel": "sha256-izZCH7cKuDq+jue5MnQxuhmHf84Xn7rDKd/tTTigA4s=",
+        "MODULE.bazel": "sha256-Xmz+Kt5pGmjKl+kDGG/QW8dAU5NRww0JTe0+wKhqr2I=",
+        "tests/BUILD.bazel": "sha256-W+H11tdvPSgfL0x2utlfFOeIsH9RSmBpvBiTtjnvZLs=",
+        "tests/MODULE.bazel": "sha256-RbwxrLdwS88YQ+JM11UiU8VuHV6fxiEwStu1p1h58kA="
+    }
+}

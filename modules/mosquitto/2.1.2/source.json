@@ -1,0 +1,9 @@
+{
+    "url": "https://mosquitto.org/files/source/mosquitto-2.1.2.tar.gz",
+    "integrity": "sha256-/ZBTgGkaxl6lqTd56CFJQYKePW4DjV7f+erF/XTL7QI=",
+    "strip_prefix": "mosquitto-2.1.2",
+    "overlay": {
+        "BUILD.bazel": "sha256-hCMsje7oB2RdE5BTht1INVcidO/2QfDm7HQFXUJlX5Y=",
+        "test/BUILD.bazel": "sha256-ofPjVZS26wnLpohwrGK6ojlLEotdgkc99s5o2btLH6o="
+    }
+}

@@ -1,0 +1,8 @@
+{
+    "url": "https://ftp.denx.de/pub/u-boot/u-boot-2026.01.tar.bz2",
+    "integrity": "sha256-tg1YZc79vHXajaQVbFbEWOAN51pJuAwaLlipbjCtDVQ=",
+    "strip_prefix": "u-boot-2026.01",
+    "overlay": {
+        "BUILD.bazel": "sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU="
+    }
+}

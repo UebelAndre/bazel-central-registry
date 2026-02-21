@@ -1,0 +1,18 @@
+{
+    "homepage": "https://u-boot.org/",
+    "maintainers": [
+        {
+            "email": "26427366+UebelAndre@users.noreply.github.com",
+            "github": "UebelAndre",
+            "github_user_id": 26427366,
+            "name": "UebelAndre"
+        }
+    ],
+    "repository": [
+        "https://ftp.denx.de/pub/u-boot/"
+    ],
+    "versions": [
+        "2025.01"
+    ],
+    "yanked_versions": {}
+}

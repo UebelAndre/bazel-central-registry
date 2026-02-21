@@ -1,0 +1,36 @@
+"""https://www.denx.de/wiki/U-Boot"""
+
+module(
+    name = "u-boot",
+    version = "2025.01",
+    bazel_compatibility = [">=7.2.1"],
+)
+
+bazel_dep(name = "bazel_skylib", version = "1.8.2")
+bazel_dep(name = "bison", version = "3.8.2.bcr.5")
+bazel_dep(name = "flex", version = "2.6.4.bcr.4")
+bazel_dep(name = "openssl", version = "3.5.5.bcr.3")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "rules_cc", version = "0.2.4")
+bazel_dep(name = "rules_cc_autoconf", version = "0.10.0")
+bazel_dep(name = "rules_kconfig", version = "0.3.1")
+bazel_dep(name = "rules_python", version = "1.9.0")
+
+python = use_extension(
+    "@rules_python//python/extensions:python.bzl",
+    "python",
+)
+python.toolchain(python_version = "3.12")
+use_repo(python, "python_3_12_host")
+
+kconfig = use_extension("@rules_kconfig//kconfig:extensions.bzl", "kconfig")
+kconfig.repo(
+    name = "u-boot_kconfig",
+    interpreter = "@python_3_12_host//:python",
+    kconfig = "//:Kconfig",
+    settings_labels = {
+        "//bazel:clang_version": "CONFIG_CLANG_VERSION",
+        "//bazel:gcc_version": "CONFIG_GCC_VERSION",
+    },
+)
+use_repo(kconfig, "u-boot_kconfig")

@@ -1,0 +1,100 @@
+load("@u-boot_kconfig_sandbox//:defs.bzl", sandbox_overrides = "with_kconfig_overrides")
+load("@u-boot_kconfig_rpi4//:defs.bzl", rpi4_overrides = "with_kconfig_overrides")
+load("@u-boot_kconfig_am335x//:defs.bzl", am335x_overrides = "with_kconfig_overrides")
+load("@u-boot_kconfig_stm32mp15//:defs.bzl", stm32mp15_overrides = "with_kconfig_overrides")
+load("@u-boot_kconfig_imx8mm//:defs.bzl", imx8mm_overrides = "with_kconfig_overrides")
+load("@u-boot_kconfig_rk3588//:defs.bzl", rk3588_overrides = "with_kconfig_overrides")
+load("@u-boot_kconfig_qemu_riscv64//:defs.bzl", qemu_riscv64_overrides = "with_kconfig_overrides")
+load("@u-boot_kconfig_qemu_x86_64//:defs.bzl", qemu_x86_64_overrides = "with_kconfig_overrides")
+load("@u-boot_kconfig_sifive//:defs.bzl", sifive_overrides = "with_kconfig_overrides")
+load("@u-boot_kconfig_qemu_arm64//:defs.bzl", qemu_arm64_overrides = "with_kconfig_overrides")
+load("@u-boot_kconfig_efi_x86_payload64//:defs.bzl", efi_x86_payload64_overrides = "with_kconfig_overrides")
+
+# Sandbox — build + test (runs on any host)
+sandbox_overrides(
+    name = "u-boot-sandbox",
+    actual = "@u-boot//:u-boot",
+    executable = True,
+)
+
+sandbox_overrides(
+    name = "u-boot-sandbox-test",
+    actual = "@u-boot//:u-boot-test",
+    executable = True,
+    testonly = True,
+)
+
+# ARM64 boards
+rpi4_overrides(
+    name = "u-boot-rpi4",
+    actual = "@u-boot//:u-boot",
+    executable = True,
+    target_compatible_with = ["@platforms//cpu:aarch64"],
+)
+
+imx8mm_overrides(
+    name = "u-boot-imx8mm",
+    actual = "@u-boot//:u-boot",
+    executable = True,
+    target_compatible_with = ["@platforms//cpu:aarch64"],
+)
+
+rk3588_overrides(
+    name = "u-boot-rk3588",
+    actual = "@u-boot//:u-boot",
+    executable = True,
+    target_compatible_with = ["@platforms//cpu:aarch64"],
+)
+
+# ARM32 boards
+am335x_overrides(
+    name = "u-boot-am335x",
+    actual = "@u-boot//:u-boot",
+    executable = True,
+    target_compatible_with = ["@platforms//cpu:armv7"],
+)
+
+stm32mp15_overrides(
+    name = "u-boot-stm32mp15",
+    actual = "@u-boot//:u-boot",
+    executable = True,
+    target_compatible_with = ["@platforms//cpu:armv7"],
+)
+
+# RISC-V boards
+qemu_riscv64_overrides(
+    name = "u-boot-qemu-riscv64",
+    actual = "@u-boot//:u-boot",
+    executable = True,
+    target_compatible_with = ["@platforms//cpu:riscv64"],
+)
+
+sifive_overrides(
+    name = "u-boot-sifive",
+    actual = "@u-boot//:u-boot",
+    executable = True,
+    target_compatible_with = ["@platforms//cpu:riscv64"],
+)
+
+# x86 boards
+qemu_x86_64_overrides(
+    name = "u-boot-qemu-x86-64",
+    actual = "@u-boot//:u-boot",
+    executable = True,
+    target_compatible_with = ["@platforms//cpu:x86_32"],
+)
+
+# UEFI boards
+qemu_arm64_overrides(
+    name = "u-boot-qemu-arm64",
+    actual = "@u-boot//:u-boot",
+    executable = True,
+    target_compatible_with = ["@platforms//cpu:aarch64"],
+)
+
+efi_x86_payload64_overrides(
+    name = "u-boot-efi-x86-payload64",
+    actual = "@u-boot//:u-boot",
+    executable = True,
+    target_compatible_with = ["@platforms//cpu:x86_32"],
+)

@@ -1,0 +1,5913 @@
+"""Native Bazel build for U-Boot.
+
+Supports all board configurations via rules_kconfig. Consumers select
+a board by creating kconfig.overrides in their MODULE.bazel pointing
+to any defconfig file from configs/.
+"""
+
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@bison//:bison.bzl", "bison")
+load("@flex//:flex.bzl", "flex")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:asm_offsets.bzl", "uboot_asm_offsets")
+load("//bazel:binary_rules.bzl", "embed_binary_data", "generate_config_h", "generate_dt_h", "generate_timestamp_h", "objcopy_binary", "preprocess_linker_script")
+load("//bazel:defs.bzl", "UBOOT_VERSION", "kconfig_select", "uboot_cc_library", "uboot_copts", "uboot_defines", "uboot_includes")
+
+exports_files(
+    ["Kconfig"] + glob(["configs/*_defconfig"]),
+    visibility = ["//visibility:public"],
+)
+
+# ======================================================================
+# Architecture config_settings
+# ======================================================================
+
+[
+    config_setting(
+        name = "arch_" + arch,
+        flag_values = {"@u-boot_kconfig//:CONFIG_SYS_ARCH": arch},
+    )
+    for arch in [
+        "arc",
+        "arm",
+        "m68k",
+        "microblaze",
+        "mips",
+        "nios2",
+        "powerpc",
+        "riscv",
+        "sandbox",
+        "sh",
+        "x86",
+        "xtensa",
+    ]
+]
+
+# ARM CPU variant config_settings (from CONFIG_SYS_CPU)
+[
+    config_setting(
+        name = "cpu_" + cpu,
+        flag_values = {"@u-boot_kconfig//:CONFIG_SYS_CPU": cpu},
+    )
+    for cpu in [
+        "arm720t",
+        "arm920t",
+        "arm926ejs",
+        "arm1136",
+        "arm1176",
+        "armv7",
+        "armv7m",
+        "armv8",
+    ]
+]
+
+config_setting(
+    name = "CONFIG_CC_OPTIMIZE_FOR_SIZE",
+    flag_values = {"@u-boot_kconfig//:CONFIG_CC_OPTIMIZE_FOR_SIZE": "true"},
+)
+
+config_setting(
+    name = "CONFIG_CC_OPTIMIZE_FOR_SPEED",
+    flag_values = {"@u-boot_kconfig//:CONFIG_CC_OPTIMIZE_FOR_SPEED": "true"},
+)
+
+# ARM machine config_settings (from arch/arm/Makefile machine-$(CONFIG_ARCH_*) list)
+
+_ARM_MACHINES = {
+    "ARCH_APPLE": "apple",
+    "ARCH_ASPEED": "aspeed",
+    "ARCH_AT91": "at91",
+    "ARCH_BCM283X": "bcm283x",
+    "ARCH_BCMBCA": "bcmbca",
+    "ARCH_BCMSTB": "bcmstb",
+    "ARCH_DAVINCI": "davinci",
+    "ARCH_EXYNOS": "exynos",
+    "ARCH_GXP": "hpe",
+    "ARCH_HIGHBANK": "highbank",
+    "ARCH_HISTB": "histb",
+    "ARCH_IPQ40XX": "ipq40xx",
+    "ARCH_K3": "k3",
+    "ARCH_KEYSTONE": "keystone",
+    "ARCH_KIRKWOOD": "kirkwood",
+    "ARCH_LPC32XX": "lpc32xx",
+    "ARCH_MEDIATEK": "mediatek",
+    "ARCH_MESON": "meson",
+    "ARCH_MVEBU": "mvebu",
+    "ARCH_NEXELL": "nexell",
+    "ARCH_NPCM": "npcm",
+    "ARCH_OCTEONTX": "octeontx",
+    "ARCH_OCTEONTX2": "octeontx2",
+    "ARCH_OMAP2PLUS": "omap2",
+    "ARCH_ORION5X": "orion5x",
+    "ARCH_OWL": "owl",
+    "ARCH_RENESAS": "renesas",
+    "ARCH_ROCKCHIP": "rockchip",
+    "ARCH_S5PC1XX": "s5pc1xx",
+    "ARCH_SC5XX": "sc5xx",
+    "ARCH_SNAPDRAGON": "snapdragon",
+    "ARCH_SOCFPGA": "socfpga",
+    "ARCH_STM32": "stm32",
+    "ARCH_STM32MP": "stm32mp",
+    "ARCH_SUNXI": "sunxi",
+    "ARCH_TEGRA": "tegra",
+    "ARCH_U8500": "u8500",
+    "ARCH_UNIPHIER": "uniphier",
+    "ARCH_VERSAL": "versal",
+    "ARCH_VERSAL2": "versal2",
+    "ARCH_VERSAL_NET": "versal-net",
+    "ARCH_ZYNQ": "zynq",
+    "ARCH_ZYNQMP": "zynqmp",
+    "ARCH_ZYNQMP_R5": "zynqmp-r5",
+    "MACH_IMX": "imx",
+}
+
+[
+    config_setting(
+        name = "mach_" + mach,
+        flag_values = {"@u-boot_kconfig//:CONFIG_" + cfg: "true"},
+    )
+    for cfg, mach in _ARM_MACHINES.items()
+]
+
+# ======================================================================
+# Host tools: dtc, mkimage
+# ======================================================================
+
+_SYSTEM_SHADOW_HDRS = [
+    "include/crypt.h",
+    "include/ctype.h",
+    "include/elf.h",
+    "include/errno.h",
+    "include/getopt.h",
+    "include/inttypes.h",
+    "include/malloc.h",
+    "include/menu.h",
+    "include/panel.h",
+    "include/search.h",
+    "include/stdint.h",
+    "include/stdio.h",
+    "include/stdlib.h",
+    "include/string.h",
+    "include/time.h",
+    "include/linux/apm_bios.h",
+    "include/linux/byteorder/big_endian.h",
+    "include/linux/byteorder/little_endian.h",
+    "include/linux/const.h",
+    "include/linux/edd.h",
+    "include/linux/errno.h",
+    "include/linux/ethtool.h",
+    "include/linux/fb.h",
+    "include/linux/if_ether.h",
+    "include/linux/if_vlan.h",
+    "include/linux/input.h",
+    "include/linux/ioctl.h",
+    "include/linux/kernel.h",
+    "include/linux/mdio.h",
+    "include/linux/mii.h",
+    "include/linux/netdevice.h",
+    "include/linux/posix_types.h",
+    "include/linux/psci.h",
+    "include/linux/screen_info.h",
+    "include/linux/serial_reg.h",
+    "include/linux/stat.h",
+    "include/linux/stddef.h",
+    "include/linux/string.h",
+    "include/linux/time.h",
+    "include/linux/types.h",
+    "include/linux/usb/cdc.h",
+    "include/linux/usb/ch9.h",
+]
+
+HOST_TOOL_COPTS = [
+    "-DUSE_HOSTCC",
+    "-D__KERNEL_STRICT_NAMES",
+    "-D_GNU_SOURCE",
+    "-include",
+    "include/compiler.h",
+    '-DMKIMAGE_DTC=\\"dtc\\"',
+    "-DCONFIG_FIT_SIGNATURE",
+    "-DCONFIG_FIT_SIGNATURE_MAX_SIZE=0xffffffff",
+    "-DCONFIG_TOOLS_FIT_SIGNATURE",
+    "-DCONFIG_TOOLS_FIT_SIGNATURE_MAX_SIZE=0xffffffff",
+    "-DCONFIG_FIT_CIPHER",
+    "-DCONFIG_FIT_RSASSA_PSS",
+    "-DCONFIG_TOOLS_FIT_RSASSA_PSS=1",
+    "-DCONFIG_TOOLS_LIBCRYPTO",
+    "-DCONFIG_TOOLS_IMAGE_PRE_LOAD",
+    "-DCONFIG_SHA384",
+    "-Wno-sign-compare",
+    "-Wno-unused-parameter",
+    "-DPATH_MAX=4096",
+]
+
+cc_library(
+    name = "host_uboot_hdrs",
+    hdrs = glob(
+        ["include/**/*.h"],
+        exclude = _SYSTEM_SHADOW_HDRS,
+    ) + glob([
+        "lib/lzma/**/*.h",
+        "scripts/dtc/libfdt/**/*.h",
+        "arch/arm/include/**/*.h",
+        "arch/sandbox/include/**/*.h",
+    ]),
+    includes = ["include"],
+    visibility = ["//visibility:private"],
+)
+
+cc_library(
+    name = "libfdt_host",
+    srcs = glob(["scripts/dtc/libfdt/*.c"]),
+    hdrs = glob(["scripts/dtc/libfdt/*.h"]),
+    copts = HOST_TOOL_COPTS,
+    includes = ["scripts/dtc/libfdt"],
+    deps = [":host_uboot_hdrs"],
+)
+
+bison(
+    name = "dtc_parser",
+    srcs = ["scripts/dtc/dtc-parser.y"],
+    outs = [
+        "scripts/dtc/dtc-parser.tab.c",
+        "scripts/dtc/dtc-parser.tab.h",
+    ],
+    args = [
+        "-o",
+        "$(execpath scripts/dtc/dtc-parser.tab.c)",
+        "--defines=$(execpath scripts/dtc/dtc-parser.tab.h)",
+        "$(execpath scripts/dtc/dtc-parser.y)",
+    ],
+)
+
+flex(
+    name = "dtc_lexer",
+    srcs = ["scripts/dtc/dtc-lexer.l"],
+    outs = ["scripts/dtc/dtc-lexer.lex.c"],
+    args = [
+        "-o",
+        "$(execpath scripts/dtc/dtc-lexer.lex.c)",
+        "$(execpath scripts/dtc/dtc-lexer.l)",
+    ],
+)
+
+cc_binary(
+    name = "dtc",
+    srcs = [
+        "scripts/dtc/checks.c",
+        "scripts/dtc/data.c",
+        "scripts/dtc/dtc.c",
+        "scripts/dtc/dtc-lexer.lex.c",
+        "scripts/dtc/dtc-parser.tab.c",
+        "scripts/dtc/dtc-parser.tab.h",
+        "scripts/dtc/flattree.c",
+        "scripts/dtc/fstree.c",
+        "scripts/dtc/livetree.c",
+        "scripts/dtc/srcpos.c",
+        "scripts/dtc/treesource.c",
+        "scripts/dtc/util.c",
+    ] + glob(["scripts/dtc/*.h"]),
+    copts = [
+        "-DPACKAGE_VERSION=\\\"1.7.0\\\"",
+        "-DNO_YAML",
+    ],
+    includes = [
+        "scripts/dtc",
+        "scripts/dtc/libfdt",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [":libfdt_host"],
+)
+
+cc_binary(
+    name = "mkimage",
+    srcs = [
+        # dumpimage-mkimage-objs from tools/Makefile
+        "tools/aisimage.c",
+        "tools/atmelimage.c",
+        "tools/default_image.c",
+        "tools/fit_common.c",
+        "tools/fit_image.c",
+        "tools/gpimage.c",
+        "tools/gpimage-common.c",
+        "tools/image-host.c",
+        "tools/imagetool.c",
+        "tools/imx8image.c",
+        "tools/imx8mimage.c",
+        "tools/imximage.c",
+        "tools/kwbimage.c",
+        "tools/lpc32xximage.c",
+        "tools/mkimage.c",
+        "tools/mtk_image.c",
+        "tools/mtk_nand_headers.c",
+        "tools/mxsimage.c",
+        "tools/omapimage.c",
+        "tools/os_support.c",
+        "tools/pbl_crc32.c",
+        "tools/pblimage.c",
+        "tools/renesas_spkgimage.c",
+        "tools/rkcommon.c",
+        "tools/rkimage.c",
+        "tools/rksd.c",
+        "tools/rkspi.c",
+        "tools/sfspl.c",
+        "tools/socfpgaimage.c",
+        "tools/stm32image.c",
+        "tools/sunxi_egon.c",
+        "tools/sunxi_toc0.c",
+        "tools/ublimage.c",
+        "tools/vybridimage.c",
+        "tools/zynqimage.c",
+        "tools/zynqmpbif.c",
+        "tools/zynqmpimage.c",
+        # image-sig-host
+        "tools/image-sig-host.c",
+    ] + glob(["tools/*.h"]) + [
+        "include/generated/version_autogenerated.h",
+        "include/generated/timestamp_autogenerated.h",
+        "include/generated/autoconf_fixup.h",
+        # Generated/lib sources
+        "boot/bootm.c",
+        "boot/fdt_region.c",
+        "boot/image.c",
+        "boot/image-fit.c",
+        "boot/image-fit-sig.c",
+        "boot/image-cipher.c",
+        "boot/image-host.c",
+        "common/hash.c",
+        "lib/crc16-ccitt.c",
+        "lib/crc32.c",
+        "lib/fdtdec.c",
+        "lib/fdtdec_common.c",
+        "lib/hash-checksum.c",
+        "lib/md5.c",
+        "lib/rc4.c",
+        "lib/sha1.c",
+        "lib/sha256.c",
+        "lib/sha512.c",
+        "lib/aes/aes-decrypt.c",
+        "lib/aes/aes-encrypt.c",
+        "lib/ecdsa/ecdsa-libcrypto.c",
+        "lib/fdt-libcrypto.c",
+        "lib/rsa/rsa-mod-exp.c",
+        "lib/rsa/rsa-sign.c",
+        "lib/rsa/rsa-verify.c",
+    ],
+    copts = HOST_TOOL_COPTS,
+    includes = [
+        "scripts/dtc/libfdt",
+        "tools",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":host_uboot_hdrs",
+        ":kconfig_headers",
+        ":libfdt_host",
+        "@openssl//:crypto",
+        "@openssl//:ssl",
+    ],
+)
+
+# ======================================================================
+# Generated headers
+# ======================================================================
+
+write_file(
+    name = "autoconf_fixup_h",
+    out = "include/generated/autoconf_fixup.h",
+    content = [
+        "/* Undefine configs whose depends-on is unsatisfied. */",
+        "/* rules_kconfig emits all settings regardless of dependency. */",
+        "#ifndef CONFIG_BOOT_RETRY",
+        "#undef CONFIG_BOOT_RETRY_TIME",
+        "#undef CONFIG_BOOT_RETRY_MIN",
+        "#endif",
+        "",
+    ],
+)
+
+write_file(
+    name = "version_h",
+    out = "include/generated/version_autogenerated.h",
+    content = [
+        '#define PLAIN_VERSION "' + UBOOT_VERSION + '"',
+        '#define U_BOOT_VERSION "U-Boot " PLAIN_VERSION',
+        "#define U_BOOT_VERSION_NUM 2025",
+        "#define U_BOOT_VERSION_NUM_PATCH 1",
+        '#define CC_VERSION_STRING ""',
+        '#define LD_VERSION_STRING ""',
+        "",
+    ],
+)
+
+generate_timestamp_h(
+    name = "timestamp_h",
+    out = "include/generated/timestamp_autogenerated.h",
+)
+
+write_file(
+    name = "defaultenv_h",
+    out = "include/generated/defaultenv_autogenerated.h",
+    content = [
+        "#define DEFAULT_ENV_INSTANCE_EMBEDDED",
+        "#include <env_default.h>",
+        "",
+    ],
+)
+
+generate_config_h(
+    name = "config_h",
+    out = "include/config.h",
+    board = "@u-boot_kconfig//:CONFIG_SYS_BOARD",
+    config_name = "@u-boot_kconfig//:CONFIG_SYS_CONFIG_NAME",
+    vendor = "@u-boot_kconfig//:CONFIG_SYS_VENDOR",
+)
+
+write_file(
+    name = "config_data_gz_h",
+    out = "include/generated/config_data_gz.h",
+    content = [
+        "static const char config_data_gz[] = {};",
+        "static const unsigned long config_data_size = 0;",
+        "",
+    ],
+)
+
+generate_dt_h(
+    name = "dt_h",
+    device_tree = "@u-boot_kconfig//:CONFIG_DEFAULT_DEVICE_TREE",
+    out = "include/generated/dt.h",
+)
+
+write_file(
+    name = "environment_h",
+    out = "include/generated/environment.h",
+    content = [""],
+)
+
+write_file(
+    name = "bmp_logo_data_h",
+    out = "include/bmp_logo_data.h",
+    content = [""],
+)
+
+# Copy kconfig-generated config.h to include/generated/autoconf.h.
+# This file is board-specific — kconfig_autoconf reads transitioned
+# flag values at build time and autoconf_hdr renders them into config.h.
+copy_file(
+    name = "autoconf_h",
+    src = "@u-boot_kconfig//:config_h",
+    out = "include/generated/autoconf.h",
+)
+
+# Minimal header target for asm-offsets (avoids circular dep with generated_headers)
+cc_library(
+    name = "kconfig_headers",
+    hdrs = [":autoconf_h"],
+    includes = ["include"],
+    deps = ["@u-boot_kconfig//:config"],
+)
+
+_GENERATED_HDRS = [
+    ":autoconf_h",
+    "include/bmp_logo_data.h",
+    "include/generated/autoconf_fixup.h",
+    "include/config.h",
+    "include/generated/config_data_gz.h",
+    "include/generated/defaultenv_autogenerated.h",
+    "include/generated/dt.h",
+    "include/generated/environment.h",
+    "include/generated/timestamp_autogenerated.h",
+    "include/generated/version_autogenerated.h",
+]
+
+_ALL_HDRS = glob([
+    "include/**/*.h",
+    "scripts/dtc/libfdt/**/*.h",
+    "lib/lzma/**/*.h",
+]) + _GENERATED_HDRS
+
+_ASM_OFFSETS_HDRS = _ALL_HDRS + glob([
+    "arch/arm/include/**/*.h",
+    "arch/sandbox/include/**/*.h",
+    "arch/x86/include/**/*.h",
+    "arch/riscv/include/**/*.h",
+    "arch/mips/include/**/*.h",
+    "arch/powerpc/include/**/*.h",
+])
+
+_ASM_OFFSETS_COPTS = [
+    "-include",
+    "include/linux/kconfig.h",
+    "-D__KERNEL__",
+    "-D__UBOOT__",
+    "-DDO_DEPS_ONLY",
+    "-ffreestanding",
+    "-fno-builtin",
+    "-Os",
+]
+
+uboot_asm_offsets(
+    name = "gen_generic_asm_offsets",
+    src = "lib/asm-offsets.c",
+    out = "include/generated/generic-asm-offsets.h",
+    hdrs = _ASM_OFFSETS_HDRS,
+    copts = _ASM_OFFSETS_COPTS,
+    includes = [
+        ".",
+        "include",
+    ] + select({
+        ":arch_arm": ["arch/arm/include"],
+        ":arch_sandbox": ["arch/sandbox/include"],
+        ":arch_x86": ["arch/x86/include"],
+        ":arch_riscv": ["arch/riscv/include"],
+        ":arch_mips": ["arch/mips/include"],
+        ":arch_powerpc": ["arch/powerpc/include"],
+        "//conditions:default": [],
+    }),
+    deps = [":asm_arch_headers", ":kconfig_headers"],
+)
+
+uboot_asm_offsets(
+    name = "gen_asm_offsets",
+    src = select({
+        ":arch_arm": "arch/arm/lib/asm-offsets.c",
+        ":arch_riscv": "arch/riscv/lib/asm-offsets.c",
+        ":arch_x86": "arch/x86/lib/asm-offsets.c",
+        "//conditions:default": "lib/asm-offsets.c",
+    }),
+    out = "include/generated/asm-offsets.h",
+    hdrs = _ASM_OFFSETS_HDRS + [
+        "include/generated/generic-asm-offsets.h",
+    ],
+    copts = _ASM_OFFSETS_COPTS,
+    includes = [
+        ".",
+        "include",
+    ] + select({
+        ":arch_arm": ["arch/arm/include"],
+        ":arch_sandbox": ["arch/sandbox/include"],
+        ":arch_x86": ["arch/x86/include"],
+        ":arch_riscv": ["arch/riscv/include"],
+        ":arch_mips": ["arch/mips/include"],
+        ":arch_powerpc": ["arch/powerpc/include"],
+        "//conditions:default": [],
+    }),
+    deps = [":asm_arch_headers", ":kconfig_headers"],
+)
+
+cc_library(
+    name = "generated_headers_base",
+    hdrs = glob(["include/**/*.h"]) + glob(["arch/*/include/**/*.h"]) + glob(["scripts/dtc/libfdt/**/*.h"]) + glob(["dts/upstream/include/**/*.h"]) + glob([
+        "board/**/*.h",
+        "boot/**/*.h",
+        "cmd/**/*.h",
+        "common/**/*.h",
+        "disk/**/*.h",
+        "drivers/**/*.h",
+        "fs/**/*.h",
+        "lib/**/*.h",
+        "net/**/*.h",
+        "test/**/*.h",
+    ], exclude = ["lib/mbedtls/**/*.h"]) + _GENERATED_HDRS + select({
+        "@u-boot_kconfig//settings:kconfig.CONFIG_MBEDTLS_LIB_Y": glob([
+            "lib/mbedtls/*.h",
+            "lib/mbedtls/port/*.h",
+            "lib/mbedtls/external/mbedtls/include/**/*.h",
+            "lib/mbedtls/external/mbedtls/library/**/*.h",
+        ]),
+        "//conditions:default": [],
+    }),
+    includes = [
+        ".",
+        "include",
+        "dts/upstream/include",
+    ],
+    deps = ["@u-boot_kconfig//:config"],
+)
+
+cc_library(
+    name = "generated_headers",
+    hdrs = [
+        "include/generated/asm-offsets.h",
+        "include/generated/generic-asm-offsets.h",
+    ],
+    deps = [":generated_headers_base"],
+)
+
+# ======================================================================
+# Source libraries
+# ======================================================================
+
+# --- lib/ ---
+
+uboot_cc_library(
+    name = "lib",
+    srcs = [
+        "lib/abuf.c",
+        "lib/alist.c",
+        "lib/charset.c",
+        "lib/crc8.c",
+        "lib/ctype.c",
+        "lib/date.c",
+        "lib/display_options.c",
+        "lib/div64.c",
+        "lib/errno.c",
+        "lib/hang.c",
+        "lib/hashtable.c",
+        "lib/hexdump.c",
+        "lib/ldiv.c",
+        "lib/linux_compat.c",
+        "lib/linux_string.c",
+        "lib/list_sort.c",
+        "lib/net_utils.c",
+        "lib/panic.c",
+        "lib/qsort.c",
+        "lib/rc4.c",
+        "lib/rtc-lib.c",
+        "lib/string.c",
+        "lib/strto.c",
+        "lib/tables_csum.c",
+        "lib/time.c",
+        "lib/vsprintf.c",
+    ] + kconfig_select(
+        "CONFIG_AES",
+        ["lib/aes.c"],
+    ) + kconfig_select(
+        "CONFIG_ADDR_MAP",
+        ["lib/addr_map.c"],
+    ) + kconfig_select(
+        "CONFIG_BCH",
+        ["lib/bch.c"],
+    ) + kconfig_select(
+        "CONFIG_BITREVERSE",
+        ["lib/bitrev.c"],
+    ) + kconfig_select(
+        "CONFIG_BINMAN_FDT",
+        ["lib/binman.c"],
+    ) + kconfig_select(
+        "CONFIG_CIRCBUF",
+        ["lib/circbuf.c"],
+    ) + [
+        "lib/crc16.c",
+        "lib/crc16-ccitt.c",
+    ] + kconfig_select(
+        "CONFIG_CRC32",
+        ["lib/crc32.c"],
+    ) + kconfig_select(
+        "CONFIG_CRC32C",
+        ["lib/crc32c.c"],
+    ) + kconfig_select(
+        "CONFIG_ERRNO_STR",
+        ["lib/errno_str.c"],
+    ) + kconfig_select(
+        "CONFIG_GENERATE_SMBIOS_TABLE",
+        ["lib/smbios.c"],
+    ) + kconfig_select(
+        "CONFIG_GETOPT",
+        ["lib/getopt.c"],
+    ) + kconfig_select(
+        "CONFIG_GZIP",
+        ["lib/gunzip.c"],
+    ) + kconfig_select(
+        "CONFIG_GZIP_COMPRESSED",
+        ["lib/gzip.c"],
+    ) + kconfig_select(
+        "CONFIG_HASH",
+        ["lib/hash-checksum.c"],
+    ) + kconfig_select(
+        "CONFIG_IMAGE_SPARSE",
+        ["lib/image-sparse.c"],
+    ) + kconfig_select(
+        "CONFIG_LIB_ELF",
+        ["lib/elf.c"],
+    ) + kconfig_select(
+        "CONFIG_LIB_RAND",
+        ["lib/rand.c"],
+    ) + kconfig_select(
+        "CONFIG_LIB_UUID",
+        ["lib/uuid.c"],
+    ) + kconfig_select(
+        "CONFIG_LMB",
+        ["lib/lmb.c"],
+    ) + kconfig_select(
+        "CONFIG_MD5_LEGACY",
+        ["lib/md5.c"],
+    ) + kconfig_select(
+        "CONFIG_OF_LIVE",
+        ["lib/of_live.c"],
+    ) + kconfig_select(
+        "CONFIG_OF_LIBFDT",
+        [
+            "lib/fdtdec.c",
+            "lib/fdtdec_common.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_PHYSMEM",
+        ["lib/physmem.c"],
+    ) + kconfig_select(
+        "CONFIG_RBTREE",
+        ["lib/rbtree.c"],
+    ) + kconfig_select(
+        "CONFIG_REGEX",
+        ["lib/slre.c"],
+    ) + kconfig_select(
+        "CONFIG_SEMIHOSTING",
+        ["lib/semihosting.c"],
+    ) + kconfig_select(
+        "CONFIG_SHA1_LEGACY",
+        ["lib/sha1.c"],
+    ) + kconfig_select(
+        "CONFIG_SHA256_LEGACY",
+        ["lib/sha256.c"],
+    ) + kconfig_select(
+        "CONFIG_SHA512_LEGACY",
+        ["lib/sha512.c"],
+    ) + kconfig_select(
+        "CONFIG_SMBIOS_PARSER",
+        ["lib/smbios-parser.c"],
+    ) + kconfig_select(
+        "CONFIG_SSCANF",
+        ["lib/sscanf.c"],
+    ) + kconfig_select(
+        "CONFIG_TPM",
+        [
+            "lib/tpm-common.c",
+            "lib/tpm_api.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_TPM_V1",
+        ["lib/tpm-v1.c"],
+    ) + kconfig_select(
+        "CONFIG_TPM_V2",
+        [
+            "lib/tpm-v2.c",
+            "lib/tpm_tcg2.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_ASN1_DECODER_LEGACY",
+        ["lib/asn1_decoder.c"],
+    ) + kconfig_select(
+        "CONFIG_TRACE",
+        ["lib/trace.c"],
+    ) + kconfig_select(
+        "CONFIG_XXHASH",
+        ["lib/xxhash.c"],
+    ),
+    textual_hdrs = glob(["lib/**/*.h"]),
+)
+
+uboot_cc_library(
+    name = "lib_crypto",
+    srcs =
+        kconfig_select(
+            "CONFIG_ASYMMETRIC_KEY_TYPE",
+            ["lib/crypto/asymmetric_type.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ASYMMETRIC_PUBLIC_KEY_LEGACY",
+            ["lib/crypto/public_key.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ASYMMETRIC_PUBLIC_KEY_SUBTYPE",
+            ["lib/crypto/public_key_helper.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_RSA_PUBLIC_KEY_PARSER_LEGACY",
+            ["lib/crypto/rsa_helper.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_X509_CERTIFICATE_PARSER",
+            [
+                "lib/crypto/x509_helper.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_PKCS7_MESSAGE_PARSER",
+            [
+                "lib/crypto/pkcs7_helper.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_PKCS7_VERIFY",
+            ["lib/crypto/pkcs7_verify.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "lib_libfdt",
+    srcs = glob(["lib/libfdt/*.c"]),
+    textual_hdrs = glob(["lib/libfdt/*.h"]) + glob(["scripts/dtc/libfdt/*.c"]),
+    includes = ["scripts/dtc/libfdt"],
+)
+
+uboot_cc_library(
+    name = "lib_lz4",
+    srcs = kconfig_select(
+        "CONFIG_LZ4",
+        ["lib/lz4_wrapper.c"],
+    ),
+    textual_hdrs = ["lib/lz4.c"],
+)
+
+uboot_cc_library(
+    name = "lib_lzma",
+    srcs = glob(["lib/lzma/*.c"]),
+    textual_hdrs = glob(["lib/lzma/*.h"]),
+)
+
+uboot_cc_library(
+    name = "lib_lzo",
+    srcs = glob(["lib/lzo/*.c"]),
+    textual_hdrs = glob(["lib/lzo/*.h"]),
+)
+
+uboot_cc_library(
+    name = "lib_zlib",
+    srcs = ["lib/zlib/zlib.c"],
+    textual_hdrs = glob(["lib/zlib/*.h"]) + glob(
+        ["lib/zlib/*.c"],
+        exclude = ["lib/zlib/zlib.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "lib_zstd",
+    srcs = glob(["lib/zstd/**/*.c"]),
+    textual_hdrs = glob(["lib/zstd/**/*.h"]),
+)
+
+uboot_cc_library(
+    name = "lib_bzip2",
+    srcs = glob(["lib/bzip2/*.c"]),
+    textual_hdrs = glob(["lib/bzip2/*.h"]),
+)
+
+uboot_cc_library(
+    name = "lib_efi_loader",
+    srcs = kconfig_select(
+        "CONFIG_EFI_LOADER",
+        glob(
+            ["lib/efi_loader/*.c"],
+            exclude = [
+                "lib/efi_loader/efi_riscv.c",
+                "lib/efi_loader/efi_variable_tee.c",
+            ],
+        ),
+    ),
+    copts = [
+        "-DFW_VERSION=0x" + UBOOT_VERSION.split(".")[0],
+        "-DFW_PATCHLEVEL=0x" + UBOOT_VERSION.split(".")[1],
+    ] + select({
+        "@platforms//cpu:x86_64": ["-DHOST_ARCH=HOST_ARCH_X86_64"],
+        "@platforms//cpu:aarch64": ["-DHOST_ARCH=HOST_ARCH_AARCH64"],
+        "@platforms//cpu:armv7": ["-DHOST_ARCH=HOST_ARCH_ARM"],
+        "@platforms//cpu:riscv64": ["-DHOST_ARCH=HOST_ARCH_RISCV64"],
+        "//conditions:default": ["-DHOST_ARCH=HOST_ARCH_X86_64"],
+    }),
+)
+
+uboot_cc_library(
+    name = "lib_acpi",
+    srcs = glob(["lib/acpi/*.c"]),
+)
+
+uboot_cc_library(
+    name = "lib_optee",
+    srcs = kconfig_select(
+        "CONFIG_OPTEE_LIB",
+        glob(["lib/optee/*.c"]),
+    ),
+)
+
+# --- common/ ---
+
+uboot_cc_library(
+    name = "common_init",
+    srcs = glob(
+        ["common/init/*.c"],
+        exclude = ["common/init/handoff.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "common",
+    srcs = [
+        "common/board_f.c",
+        "common/board_r.c",
+        "common/cli.c",
+        "common/cli_getch.c",
+        "common/cli_readline.c",
+        "common/cli_simple.c",
+        "common/command.c",
+        "common/dlmalloc.c",
+        "common/exports.c",
+        "common/main.c",
+        "common/memsize.c",
+        "common/memtop.c",
+        "common/s_record.c",
+        "common/stdio.c",
+        "common/version.c",
+    ] + kconfig_select(
+        "CONFIG_AUTOBOOT",
+        ["common/autoboot.c"],
+    ) + kconfig_select(
+        "CONFIG_BLOBLIST",
+        ["common/bloblist.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTSTAGE",
+        ["common/bootstage.c"],
+    ) + kconfig_select(
+        "CONFIG_BOUNCE_BUFFER",
+        ["common/bouncebuf.c"],
+    ) + kconfig_select(
+        "CONFIG_CONSOLE_MUX",
+        ["common/iomux.c"],
+    ) + kconfig_select(
+        "CONFIG_CROS_EC",
+        ["common/cros_ec.c"],
+    ) + kconfig_select(
+        "CONFIG_CYCLIC",
+        ["common/cyclic.c"],
+    ) + kconfig_select(
+        "CONFIG_DISPLAY_BOARDINFO",
+        ["common/board_info.c"],
+    ) + kconfig_select(
+        "CONFIG_EVENT",
+        ["common/event.c"],
+    ) + kconfig_select(
+        "CONFIG_HASH",
+        ["common/hash.c"],
+    ) + kconfig_select(
+        "CONFIG_HUSH_OLD_PARSER",
+        ["common/cli_hush.c"],
+    ) + kconfig_select(
+        "CONFIG_HUSH_MODERN_PARSER",
+        ["common/cli_hush_modern.c"],
+    ) + kconfig_select(
+        "CONFIG_I2C_EDID",
+        ["common/edid.c"],
+    ) + kconfig_select(
+        "CONFIG_LOG",
+        ["common/log.c"],
+    ) + kconfig_select(
+        "CONFIG_LOG_CONSOLE",
+        ["common/log_console.c"],
+    ) + kconfig_select(
+        "CONFIG_MENU",
+        ["common/menu.c"],
+    ) + kconfig_select(
+        "CONFIG_MII",
+        ["common/miiphyutil.c"],
+    ) + kconfig_select(
+        "CONFIG_MTD_NOR_FLASH",
+        ["common/flash.c"],
+    ) + kconfig_select(
+        "CONFIG_QFW",
+        ["common/qfw.c"],
+    ) + kconfig_select(
+        "CONFIG_SERIAL",
+        ["common/console.c"],
+    ) + kconfig_select(
+        "CONFIG_STACKPROTECTOR",
+        ["common/stackprot.c"],
+    ) + kconfig_select(
+        "CONFIG_SYS_MALLOC_F",
+        ["common/malloc_simple.c"],
+    ) + kconfig_select(
+        "CONFIG_UPDATE_COMMON",
+        ["common/update.c"],
+    ) + kconfig_select(
+        "CONFIG_USB_HOST",
+        [
+            "common/usb.c",
+            "common/usb_hub.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_USB_KEYBOARD",
+        ["common/usb_kbd.c"],
+    ) + kconfig_select(
+        "CONFIG_USB_STORAGE",
+        ["common/usb_storage.c"],
+    ) + kconfig_select(
+        "CONFIG_BUTTON_CMD",
+        ["common/button_cmd.c"],
+    ) + kconfig_select(
+        "CONFIG_USB_ONBOARD_HUB",
+        ["common/usb_onboard_hub.c"],
+    ) + kconfig_select(
+        "CONFIG_DFU_OVER_USB",
+        ["common/dfu.c"],
+    ) + kconfig_select(
+        "CONFIG_HWCONFIG",
+        ["common/hwconfig.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_IOTRACE",
+        ["common/iotrace.c"],
+    ) + kconfig_select(
+        "CONFIG_LOG_SYSLOG",
+        ["common/log_syslog.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_LOADS",
+        ["common/xyzModem.c"],
+    ) + kconfig_select(
+        "CONFIG_AVB_VERIFY",
+        ["common/avb_verify.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SCP03",
+        ["common/scp03.c"],
+    ),
+)
+
+# --- boot/ ---
+
+uboot_cc_library(
+    name = "boot",
+    srcs = [
+        "boot/image.c",
+        "boot/image-board.c",
+    ] + kconfig_select(
+        "CONFIG_ANDROID_AB",
+        ["boot/android_ab.c"],
+    ) + kconfig_select(
+        "CONFIG_ANDROID_BOOT_IMAGE",
+        [
+            "boot/image-android.c",
+            "boot/image-android-dt.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_BOOT_RETRY",
+        ["boot/bootretry.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTSTD",
+        [
+            "boot/bootdev-uclass.c",
+            "boot/bootflow.c",
+            "boot/bootmeth-uclass.c",
+            "boot/bootstd-uclass.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_BOOTMETH_EXTLINUX",
+        ["boot/bootmeth_extlinux.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTMETH_EFILOADER",
+        ["boot/bootmeth_efi.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTMETH_SANDBOX",
+        ["boot/bootmeth_sandbox.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTMETH_SCRIPT",
+        ["boot/bootmeth_script.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BOOTM",
+        [
+            "boot/bootm.c",
+            "boot/bootm_os.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_EXPO",
+        [
+            "boot/expo.c",
+            "boot/scene.c",
+            "boot/expo_build.c",
+            "boot/scene_menu.c",
+            "boot/scene_textline.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_FIT",
+        ["boot/image-fit.c"],
+    ) + kconfig_select(
+        "CONFIG_FIT_SIGNATURE",
+        [
+            "boot/image-fit-sig.c",
+            "boot/fdt_region.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_IMAGE_SIGN_INFO",
+        ["boot/image-sig.c"],
+    ) + kconfig_select(
+        "CONFIG_OF_LIBFDT",
+        [
+            "boot/fdt_support.c",
+            "boot/image-fdt.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_PXE_UTILS",
+        ["boot/pxe_utils.c"],
+    ) + kconfig_select(
+        "CONFIG_UPL",
+        ["boot/upl_common.c"],
+    ) + kconfig_select(
+        "CONFIG_UPL_READ",
+        ["boot/upl_read.c"],
+    ) + kconfig_select(
+        "CONFIG_UPL_WRITE",
+        ["boot/upl_write.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTSTD_MENU",
+        ["boot/bootflow_menu.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTSTD_PROG",
+        ["boot/prog_boot.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTMETH_EXTLINUX_PXE",
+        ["boot/bootmeth_pxe.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTMETH_CROS",
+        ["boot/bootmeth_cros.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTMETH_QFW",
+        ["boot/bootmeth_qfw.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTMETH_EFI_BOOTMGR",
+        ["boot/bootmeth_efi_mgr.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTMETH_ANDROID",
+        ["boot/bootmeth_android.c"],
+    ) + kconfig_select(
+        "CONFIG_FDT_SIMPLEFB",
+        ["boot/fdt_simplefb.c"],
+    ) + kconfig_select(
+        "CONFIG_MULTI_DTB_FIT",
+        ["boot/boot_fit.c"],
+    ) + kconfig_select(
+        "CONFIG_IMAGE_PRE_LOAD",
+        ["boot/image-pre-load.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTMETH_VBE",
+        ["boot/vbe.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTMETH_VBE_REQUEST",
+        ["boot/vbe_request.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTMETH_VBE_SIMPLE",
+        ["boot/vbe_simple.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTMETH_VBE_SIMPLE_OS",
+        ["boot/vbe_simple_os.c"],
+    ),
+    textual_hdrs = glob(
+        ["boot/**/*.h"],
+        allow_empty = True,
+    ),
+)
+
+# --- cmd/ ---
+
+uboot_cc_library(
+    name = "cmd",
+    srcs = [
+        "cmd/boot.c",
+        "cmd/load.c",
+        "cmd/panic.c",
+        "cmd/version.c",
+    ] + kconfig_select(
+        "CONFIG_CMD_ADC",
+        ["cmd/adc.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BDI",
+        ["cmd/bdinfo.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BOOTDEV",
+        ["cmd/bootdev.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BOOTFLOW",
+        ["cmd/bootflow.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BOOTMETH",
+        ["cmd/bootmeth.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BOOTI",
+        ["cmd/booti.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BOOTZ",
+        ["cmd/bootz.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_CACHE",
+        ["cmd/cache.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_CLK",
+        ["cmd/clk.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_CONSOLE",
+        ["cmd/console.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_CPU",
+        ["cmd/cpu.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_DATE",
+        ["cmd/date.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_DM",
+        ["cmd/dm.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_ECHO",
+        ["cmd/echo.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_ELF",
+        ["cmd/elf.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_EXT4",
+        ["cmd/ext4.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_FAT",
+        ["cmd/fat.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_FDT",
+        ["cmd/fdt.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_FLASH",
+        ["cmd/flash.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_FS_GENERIC",
+        ["cmd/fs.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_GPIO",
+        ["cmd/gpio.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_HASH",
+        ["cmd/hash.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_I2C",
+        ["cmd/i2c.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_ITEST",
+        ["cmd/itest.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_LED",
+        ["cmd/led.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_LOG",
+        ["cmd/log.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_MEMORY",
+        ["cmd/mem.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_MEMINFO",
+        ["cmd/meminfo.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_MII",
+        ["cmd/mii.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_MMC",
+        ["cmd/mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_NET",
+        [
+            "cmd/net.c",
+            "cmd/net-common.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_CMD_PART",
+        ["cmd/part.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_PCI",
+        ["cmd/pci.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_READ",
+        ["cmd/read.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_RNG",
+        ["cmd/rng.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SATA",
+        ["cmd/sata.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SF",
+        ["cmd/sf.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SETEXPR",
+        ["cmd/setexpr.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SLEEP",
+        ["cmd/sleep.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SOURCE",
+        ["cmd/source.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_USB",
+        ["cmd/usb.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_WDT",
+        ["cmd/wdt.c"],
+    ) + kconfig_select(
+        "CONFIG_ENV_SUPPORT",
+        ["cmd/nvedit.c"],
+    ) + kconfig_select(
+        "CONFIG_HUSH_PARSER",
+        [
+            "cmd/exit.c",
+            "cmd/test.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_SANDBOX",
+        [
+            "cmd/host.c",
+            "cmd/sb.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_CMD_2048",
+        ["cmd/2048.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_ACPI",
+        ["cmd/acpi.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_ADDRMAP",
+        ["cmd/addrmap.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_AES",
+        ["cmd/aes.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_ARMFFA",
+        ["cmd/armffa.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_AVB",
+        ["cmd/avb.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_AXI",
+        ["cmd/axi.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BCB",
+        ["cmd/bcb.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BIND",
+        ["cmd/bind.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BINOP",
+        ["cmd/binop.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BLKMAP",
+        ["cmd/blkmap.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BLOB",
+        ["cmd/blob.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BLOBLIST",
+        ["cmd/bloblist.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BLOCK_CACHE",
+        ["cmd/blkcache.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BMP",
+        ["cmd/bmp.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BOOTCOUNT",
+        ["cmd/bootcount.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BOOTEFI",
+        ["cmd/bootefi.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BOOTMENU",
+        ["cmd/bootmenu.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BOOTSTAGE",
+        ["cmd/bootstage.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BTRFS",
+        ["cmd/btrfs.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BUTTON",
+        ["cmd/button.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_CAT",
+        ["cmd/cat.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_CBFS",
+        ["cmd/cbfs.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_CEDIT",
+        ["cmd/cedit.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_CLONE",
+        ["cmd/clone.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_CLS",
+        ["cmd/cls.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_CONITRACE",
+        ["cmd/conitrace.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_CRAMFS",
+        ["cmd/cramfs.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_CROS_EC",
+        ["cmd/cros_ec.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_CYCLIC",
+        ["cmd/cyclic.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_DEMO",
+        ["cmd/demo.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_DFU",
+        ["cmd/dfu.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_DIAG",
+        ["cmd/diag.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_EEPROM",
+        ["cmd/eeprom.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_EFIDEBUG",
+        [
+            "cmd/efidebug.c",
+            "cmd/efi_common.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_CMD_EFICONFIG",
+        ["cmd/eficonfig.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_EROFS",
+        ["cmd/erofs.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_ETHSW",
+        ["cmd/ethsw.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_EVENT",
+        ["cmd/event.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_EXT2",
+        ["cmd/ext2.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_EXTENSION",
+        ["cmd/extension_board.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_FASTBOOT",
+        ["cmd/fastboot.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_FPGA",
+        ["cmd/fpga.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_FPGAD",
+        ["cmd/fpgad.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_FS_UUID",
+        ["cmd/fs_uuid.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_FUSE",
+        ["cmd/fuse.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_FWU_METADATA",
+        ["cmd/fwu_mdata.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_GETTIME",
+        ["cmd/gettime.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_GPT",
+        ["cmd/gpt.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_HISTORY",
+        ["cmd/history.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_IDE",
+        ["cmd/ide.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_INI",
+        ["cmd/ini.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_IO",
+        ["cmd/io.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_IOTRACE",
+        ["cmd/iotrace.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_IRQ",
+        ["cmd/irq.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_JFFS2",
+        ["cmd/jffs2.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_KASLRSEED",
+        ["cmd/kaslrseed.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_LSBLK",
+        ["cmd/lsblk.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_LZMADEC",
+        ["cmd/lzmadec.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_MBR",
+        ["cmd/mbr.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_MD5SUM",
+        ["cmd/md5sum.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_MDIO",
+        ["cmd/mdio.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_MISC",
+        ["cmd/misc.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_MP",
+        ["cmd/mp.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_MTD",
+        ["cmd/mtd.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_MTDPARTS",
+        ["cmd/mtdparts.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_MUX",
+        ["cmd/mux.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_NAND",
+        ["cmd/nand.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_NVEDIT_EFI",
+        ["cmd/nvedit_efi.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_NVME",
+        ["cmd/nvme.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_ONENAND",
+        ["cmd/onenand.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_OPTEE_RPMB",
+        ["cmd/optee_rpmb.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_OSD",
+        ["cmd/osd.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_PAUSE",
+        ["cmd/pause.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_PCAP",
+        ["cmd/pcap.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_PCI_MPS",
+        ["cmd/pci_mps.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_PINMUX",
+        ["cmd/pinmux.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_PMC",
+        ["cmd/pmc.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_PMIC",
+        ["cmd/pmic.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_PSTORE",
+        ["cmd/pstore.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_PVBLOCK",
+        ["cmd/pvblock.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_PWM",
+        ["cmd/pwm.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_PXE",
+        ["cmd/pxe.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_QFW",
+        ["cmd/qfw.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_REGINFO",
+        ["cmd/reginfo.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_REGULATOR",
+        ["cmd/regulator.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_REMOTEPROC",
+        ["cmd/remoteproc.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_RKMTD",
+        ["cmd/rkmtd.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_ROCKUSB",
+        ["cmd/rockusb.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_RTC",
+        ["cmd/rtc.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SCMI",
+        ["cmd/scmi.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SCP03",
+        ["cmd/scp03.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SCSI",
+        ["cmd/scsi.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SEAMA",
+        ["cmd/seama.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SELECT_FONT",
+        ["cmd/font.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SETEXPR_FMT",
+        ["cmd/printf.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SHA1SUM",
+        ["cmd/sha1sum.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SMBIOS",
+        ["cmd/smbios.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SMC",
+        ["cmd/smccc.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SOUND",
+        ["cmd/sound.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SPI",
+        ["cmd/spi.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SPL",
+        ["cmd/spl.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SQUASHFS",
+        ["cmd/sqfs.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_STACKPROTECTOR_TEST",
+        ["cmd/stackprot_test.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_STRINGS",
+        ["cmd/strings.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SYSBOOT",
+        ["cmd/sysboot.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_TCPM",
+        ["cmd/tcpm.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_TEMPERATURE",
+        ["cmd/temperature.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_TERMINAL",
+        ["cmd/terminal.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_THOR_DOWNLOAD",
+        ["cmd/thordown.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_TIME",
+        ["cmd/time.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_TIMER",
+        ["cmd/timer.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_TPM",
+        ["cmd/tpm-common.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_TPM_TEST",
+        ["cmd/tpm_test.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_TPM_V1",
+        ["cmd/tpm-v1.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_TPM_V2",
+        ["cmd/tpm-v2.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_TRACE",
+        ["cmd/trace.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_UFS",
+        ["cmd/ufs.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_UNLZ4",
+        ["cmd/unlz4.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_UNZIP",
+        ["cmd/unzip.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_UPL",
+        ["cmd/upl.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_USB_MASS_STORAGE",
+        ["cmd/usb_mass_storage.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_USB_SDP",
+        ["cmd/usb_gadget_sdp.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_VBE",
+        ["cmd/vbe.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_VIDCONSOLE",
+        ["cmd/video.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_VIRTIO",
+        ["cmd/virtio.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_W1",
+        ["cmd/w1.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_WOL",
+        ["cmd/wol.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_XIMG",
+        ["cmd/ximg.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_XXD",
+        ["cmd/xxd.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_ZIP",
+        ["cmd/zip.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_ZFS",
+        ["cmd/zfs.c"],
+    ) + kconfig_select(
+        "CONFIG_BLK",
+        ["cmd/blk_common.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BOOTM",
+        ["cmd/bootm.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_ADTIMG",
+        ["cmd/adtimg.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_ABOOTIMG",
+        ["cmd/abootimg.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_TLV_EEPROM",
+        ["cmd/tlv_eeprom.c"],
+    ),
+)
+
+# --- env/ ---
+
+uboot_cc_library(
+    name = "env",
+    srcs = [
+        "env/callback.c",
+    ] + kconfig_select(
+        "CONFIG_ENV_SUPPORT",
+        [
+            "env/common.c",
+            "env/env.c",
+            "env/attr.c",
+            "env/flags.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_ENV_IS_NOWHERE",
+        ["env/nowhere.c"],
+    ) + kconfig_select(
+        "CONFIG_ENV_IS_IN_MMC",
+        ["env/mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_ENV_IS_IN_FAT",
+        ["env/fat.c"],
+    ) + kconfig_select(
+        "CONFIG_ENV_IS_IN_EXT4",
+        ["env/ext4.c"],
+    ) + kconfig_select(
+        "CONFIG_ENV_IS_IN_NAND",
+        ["env/nand.c"],
+    ) + kconfig_select(
+        "CONFIG_ENV_IS_IN_SPI_FLASH",
+        ["env/sf.c"],
+    ) + kconfig_select(
+        "CONFIG_ENV_IS_IN_FLASH",
+        ["env/flash.c"],
+    ) + kconfig_select(
+        "CONFIG_ENV_IS_IN_EEPROM",
+        ["env/eeprom.c"],
+    ) + kconfig_select(
+        "CONFIG_ENV_IS_IN_NVRAM",
+        ["env/nvram.c"],
+    ) + kconfig_select(
+        "CONFIG_ENV_IS_IN_ONENAND",
+        ["env/onenand.c"],
+    ) + kconfig_select(
+        "CONFIG_ENV_IS_IN_REMOTE",
+        ["env/remote.c"],
+    ) + kconfig_select(
+        "CONFIG_ENV_IS_IN_UBI",
+        ["env/ubi.c"],
+    ),
+)
+
+# --- net/ ---
+
+uboot_cc_library(
+    name = "net",
+    srcs = [
+        "net/net-common.c",
+    ] + kconfig_select(
+        "CONFIG_DM_ETH",
+        [
+            "net/eth-uclass.c",
+            "net/eth_common.c",
+            "net/net.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_NET",
+        ["net/arp.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_BOOTP",
+        ["net/bootp.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_PING",
+        ["net/ping.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_TFTPBOOT",
+        ["net/tftp.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_DNS",
+        ["net/dns.c"],
+    ) + kconfig_select(
+        "CONFIG_PROT_TCP",
+        ["net/tcp.c"],
+    ) + kconfig_select(
+        "CONFIG_PROT_UDP",
+        ["net/udp.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_WGET",
+        ["net/wget.c"],
+    ) + kconfig_select(
+        "CONFIG_DM_DSA",
+        ["net/dsa-uclass.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTDEV_ETH",
+        ["net/eth_bootdev.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_CDP",
+        ["net/cdp.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_LINK_LOCAL",
+        ["net/link_local.c"],
+    ) + kconfig_select(
+        "CONFIG_IPV6",
+        [
+            "net/ndisc.c",
+            "net/net6.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_CMD_NFS",
+        ["net/nfs.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_PING6",
+        ["net/ping6.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_DHCP6",
+        ["net/dhcpv6.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_PCAP",
+        ["net/pcap.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_RARP",
+        ["net/rarp.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_SNTP",
+        ["net/sntp.c"],
+    ) + kconfig_select(
+        "CONFIG_CMD_WOL",
+        ["net/wol.c"],
+    ) + kconfig_select(
+        "CONFIG_UDP_FUNCTION_FASTBOOT",
+        ["net/fastboot_udp.c"],
+    ) + kconfig_select(
+        "CONFIG_TCP_FUNCTION_FASTBOOT",
+        ["net/fastboot_tcp.c"],
+    ) + kconfig_select(
+        "CONFIG_DM_MDIO",
+        ["net/mdio-uclass.c"],
+    ) + kconfig_select(
+        "CONFIG_DM_MDIO_MUX",
+        ["net/mdio-mux-uclass.c"],
+    ),
+)
+
+# --- disk/ ---
+
+uboot_cc_library(
+    name = "disk",
+    srcs =
+        kconfig_select(
+            "CONFIG_PARTITIONS",
+            ["disk/part.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_BLK",
+            ["disk/disk-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DOS_PARTITION",
+            ["disk/part_dos.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_EFI_PARTITION",
+            ["disk/part_efi.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ISO_PARTITION",
+            ["disk/part_iso.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MAC_PARTITION",
+            ["disk/part_mac.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_AMIGA_PARTITION",
+            ["disk/part_amiga.c"],
+        ),
+)
+
+# --- fs/ ---
+
+uboot_cc_library(
+    name = "fs",
+    srcs = [
+        "fs/fs.c",
+        "fs/fs_internal.c",
+    ] + kconfig_select(
+        "CONFIG_SEMIHOSTING",
+        ["fs/semihostingfs.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "fs_ext4",
+    srcs = [
+        "fs/ext4/dev.c",
+        "fs/ext4/ext4_common.c",
+        "fs/ext4/ext4fs.c",
+    ] + kconfig_select(
+        "CONFIG_EXT4_WRITE",
+        [
+            "fs/ext4/ext4_write.c",
+            "fs/ext4/ext4_journal.c",
+        ],
+    ),
+    textual_hdrs = glob(["fs/ext4/*.h"]),
+)
+
+uboot_cc_library(
+    name = "fs_fat",
+    srcs = kconfig_select(
+        "CONFIG_FAT_WRITE",
+        ["fs/fat/fat_write.c"],
+    ),
+    textual_hdrs = ["fs/fat/fat.c"],
+)
+
+uboot_cc_library(
+    name = "fs_sandbox",
+    srcs = glob(["fs/sandbox/*.c"]),
+)
+
+# --- api/ ---
+
+uboot_cc_library(
+    name = "api",
+    srcs = [
+        "api/api.c",
+        "api/api_display.c",
+        "api/api_net.c",
+        "api/api_storage.c",
+    ] + glob(["api/*.h"]),
+)
+
+# --- post/ ---
+
+uboot_cc_library(
+    name = "post",
+    srcs = kconfig_select(
+        "CONFIG_POST",
+        [
+            "post/post.c",
+            "post/tests.c",
+        ],
+    ),
+)
+
+# --- drivers/ ---
+
+uboot_cc_library(
+    name = "drivers_core",
+    srcs = [
+        "drivers/core/device.c",
+        "drivers/core/fdtaddr.c",
+        "drivers/core/lists.c",
+        "drivers/core/root.c",
+        "drivers/core/tag.c",
+        "drivers/core/uclass.c",
+        "drivers/core/util.c",
+    ] + kconfig_select(
+        "CONFIG_ACPIGEN",
+        ["drivers/core/acpi.c"],
+    ) + kconfig_select(
+        "CONFIG_DEVRES",
+        ["drivers/core/devres.c"],
+    ) + kconfig_select(
+        "CONFIG_DM",
+        ["drivers/core/dump.c"],
+    ) + kconfig_select(
+        "CONFIG_DM_DEVICE_REMOVE",
+        ["drivers/core/device-remove.c"],
+    ) + kconfig_select(
+        "CONFIG_OF_CONTROL",
+        [
+            "drivers/core/read.c",
+            "drivers/core/of_extra.c",
+            "drivers/core/ofnode.c",
+            "drivers/core/read_extra.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_OF_LIVE",
+        [
+            "drivers/core/of_access.c",
+            "drivers/core/of_addr.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_REGMAP",
+        ["drivers/core/regmap.c"],
+    ) + kconfig_select(
+        "CONFIG_SIMPLE_BUS",
+        ["drivers/core/simple-bus.c"],
+    ) + kconfig_select(
+        "CONFIG_SYSCON",
+        ["drivers/core/syscon-uclass.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_serial",
+    srcs = select({
+        "@u-boot_kconfig//settings:kconfig.CONFIG_DM_SERIAL_Y": ["drivers/serial/serial-uclass.c"],
+        "//conditions:default": ["drivers/serial/serial.c"],
+    }) + kconfig_select(
+        "CONFIG_PL01X_SERIAL",
+        ["drivers/serial/serial_pl01x.c"],
+    ) + kconfig_select(
+        "CONFIG_PL011_SERIAL",
+        ["drivers/serial/serial_pl01x.c"],
+    ) + kconfig_select(
+        "CONFIG_SYS_NS16550_SERIAL",
+        ["drivers/serial/serial_ns16550.c"],
+    ) + kconfig_select(
+        "CONFIG_ALTERA_UART",
+        ["drivers/serial/altera_uart.c"],
+    ) + kconfig_select(
+        "CONFIG_ALTERA_JTAG_UART",
+        ["drivers/serial/altera_jtag_uart.c"],
+    ) + kconfig_select(
+        "CONFIG_AR933X_UART",
+        ["drivers/serial/serial_ar933x.c"],
+    ) + kconfig_select(
+        "CONFIG_ARM_DCC",
+        ["drivers/serial/arm_dcc.c"],
+    ) + kconfig_select(
+        "CONFIG_ATMEL_USART",
+        ["drivers/serial/atmel_usart.c"],
+    ) + kconfig_select(
+        "CONFIG_BCM6345_SERIAL",
+        ["drivers/serial/serial_bcm6345.c"],
+    ) + kconfig_select(
+        "CONFIG_COREBOOT_SERIAL",
+        ["drivers/serial/serial_coreboot.c"],
+    ) + kconfig_select(
+        "CONFIG_CORTINA_UART",
+        ["drivers/serial/serial_cortina.c"],
+    ) + kconfig_select(
+        "CONFIG_DEBUG_SBI_CONSOLE",
+        ["drivers/serial/serial_sbi.c"],
+    ) + kconfig_select(
+        "CONFIG_EFI_APP",
+        ["drivers/serial/serial_efi.c"],
+    ) + kconfig_select(
+        "CONFIG_MCFUART",
+        ["drivers/serial/serial_mcf.c"],
+    ) + kconfig_select(
+        "CONFIG_SYS_NS16550",
+        ["drivers/serial/ns16550.c"],
+    ) + kconfig_select(
+        "CONFIG_S5P_SERIAL",
+        ["drivers/serial/serial_s5p.c"],
+    ) + kconfig_select(
+        "CONFIG_MXC_UART",
+        ["drivers/serial/serial_mxc.c"],
+    ) + kconfig_select(
+        "CONFIG_MESON_SERIAL",
+        ["drivers/serial/serial_meson.c"],
+    ) + kconfig_select(
+        "CONFIG_INTEL_MID_SERIAL",
+        ["drivers/serial/serial_intel_mid.c"],
+    ) + kconfig_select(
+        "CONFIG_ROCKCHIP_SERIAL",
+        ["drivers/serial/serial_rockchip.c"],
+    ) + kconfig_select(
+        "CONFIG_XILINX_UARTLITE",
+        ["drivers/serial/serial_xuartlite.c"],
+    ) + kconfig_select(
+        "CONFIG_SANDBOX_SERIAL",
+        ["drivers/serial/sandbox.c"],
+    ) + kconfig_select(
+        "CONFIG_SCIF_CONSOLE",
+        ["drivers/serial/serial_sh.c"],
+    ) + kconfig_select(
+        "CONFIG_SEMIHOSTING_SERIAL",
+        ["drivers/serial/serial_semihosting.c"],
+    ) + kconfig_select(
+        "CONFIG_ZYNQ_SERIAL",
+        ["drivers/serial/serial_zynq.c"],
+    ) + kconfig_select(
+        "CONFIG_FSL_LPUART",
+        ["drivers/serial/serial_lpuart.c"],
+    ) + kconfig_select(
+        "CONFIG_ARC_SERIAL",
+        ["drivers/serial/serial_arc.c"],
+    ) + kconfig_select(
+        "CONFIG_UNIPHIER_SERIAL",
+        ["drivers/serial/serial_uniphier.c"],
+    ) + kconfig_select(
+        "CONFIG_STM32_SERIAL",
+        ["drivers/serial/serial_stm32.c"],
+    ) + kconfig_select(
+        "CONFIG_STI_ASC_SERIAL",
+        ["drivers/serial/serial_sti_asc.c"],
+    ) + kconfig_select(
+        "CONFIG_PIC32_SERIAL",
+        ["drivers/serial/serial_pic32.c"],
+    ) + kconfig_select(
+        "CONFIG_BCM283X_MU_SERIAL",
+        ["drivers/serial/serial_bcm283x_mu.c"],
+    ) + kconfig_select(
+        "CONFIG_BCM283X_PL011_SERIAL",
+        ["drivers/serial/serial_bcm283x_pl011.c"],
+    ) + kconfig_select(
+        "CONFIG_MSM_SERIAL",
+        ["drivers/serial/serial_msm.c"],
+    ) + kconfig_select(
+        "CONFIG_MSM_GENI_SERIAL",
+        ["drivers/serial/serial_msm_geni.c"],
+    ) + kconfig_select(
+        "CONFIG_MXS_AUART_SERIAL",
+        ["drivers/serial/serial_mxs.c"],
+    ) + kconfig_select(
+        "CONFIG_MVEBU_A3700_UART",
+        ["drivers/serial/serial_mvebu_a3700.c"],
+    ) + kconfig_select(
+        "CONFIG_MPC8XX_CONS",
+        ["drivers/serial/serial_mpc8xx.c"],
+    ) + kconfig_select(
+        "CONFIG_NULLDEV_SERIAL",
+        ["drivers/serial/serial_nulldev.c"],
+    ) + kconfig_select(
+        "CONFIG_NPCM_SERIAL",
+        ["drivers/serial/serial_npcm.c"],
+    ) + kconfig_select(
+        "CONFIG_OCTEON_SERIAL_BOOTCMD",
+        ["drivers/serial/serial_octeon_bootcmd.c"],
+    ) + kconfig_select(
+        "CONFIG_OCTEON_SERIAL_PCIE_CONSOLE",
+        ["drivers/serial/serial_octeon_pcie_console.c"],
+    ) + kconfig_select(
+        "CONFIG_OWL_SERIAL",
+        ["drivers/serial/serial_owl.c"],
+    ) + kconfig_select(
+        "CONFIG_OMAP_SERIAL",
+        ["drivers/serial/serial_omap.c"],
+    ) + kconfig_select(
+        "CONFIG_MTK_SERIAL",
+        ["drivers/serial/serial_mtk.c"],
+    ) + kconfig_select(
+        "CONFIG_MT7620_SERIAL",
+        ["drivers/serial/serial_mt7620.c"],
+    ) + kconfig_select(
+        "CONFIG_HTIF_CONSOLE",
+        ["drivers/serial/serial_htif.c"],
+    ) + kconfig_select(
+        "CONFIG_SIFIVE_SERIAL",
+        ["drivers/serial/serial_sifive.c"],
+    ) + kconfig_select(
+        "CONFIG_XEN_SERIAL",
+        ["drivers/serial/serial_xen.c"],
+    ) + kconfig_select(
+        "CONFIG_XTENSA_SEMIHOSTING_SERIAL",
+        ["drivers/serial/serial_xtensa_semihosting.c"],
+    ) + kconfig_select(
+        "CONFIG_S5P4418_PL011_SERIAL",
+        ["drivers/serial/serial_s5p4418_pl011.c"],
+    ) + kconfig_select(
+        "CONFIG_UART4_SERIAL",
+        ["drivers/serial/serial_adi_uart4.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_gpio",
+    srcs =
+        kconfig_select(
+            "CONFIG_DM_GPIO",
+            ["drivers/gpio/gpio-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SANDBOX_GPIO",
+            [
+                "drivers/gpio/sandbox.c",
+                "drivers/gpio/sandbox_test.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_DWAPB_GPIO",
+            ["drivers/gpio/dwapb_gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MXC_GPIO",
+            ["drivers/gpio/mxc_gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_OMAP_GPIO",
+            ["drivers/gpio/omap_gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ROCKCHIP_GPIO",
+            ["drivers/gpio/rk_gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_TEGRA_GPIO",
+            ["drivers/gpio/tegra_gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_BCM2835_GPIO",
+            ["drivers/gpio/bcm2835_gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SUNXI_GPIO",
+            ["drivers/gpio/sunxi_gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_STM32_GPIO",
+            ["drivers/gpio/stm32_gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_XILINX_GPIO",
+            ["drivers/gpio/xilinx_gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ZYNQ_GPIO",
+            ["drivers/gpio/zynq_gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_INTEL_GPIO",
+            ["drivers/gpio/intel_gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_AT91_GPIO",
+            ["drivers/gpio/at91_gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ATMEL_PIO4",
+            ["drivers/gpio/atmel_pio4.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MPC8XXX_GPIO",
+            ["drivers/gpio/mpc8xxx_gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_S5P",
+            ["drivers/gpio/s5p_gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_NPCM_GPIO",
+            ["drivers/gpio/npcm_gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SIFIVE_GPIO",
+            ["drivers/gpio/sifive-gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ASPEED_GPIO",
+            ["drivers/gpio/gpio-aspeed.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_clk",
+    srcs =
+        kconfig_select(
+            "CONFIG_CLK",
+            [
+                "drivers/clk/clk-uclass.c",
+                "drivers/clk/clk_fixed_rate.c",
+                "drivers/clk/clk_fixed_factor.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_CLK_CCF",
+            [
+                "drivers/clk/clk.c",
+                "drivers/clk/clk-divider.c",
+                "drivers/clk/clk-mux.c",
+                "drivers/clk/clk-gate.c",
+                "drivers/clk/clk-fixed-factor.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_CLK_VERSAL",
+            ["drivers/clk/clk_versal.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_CLK_ZYNQMP",
+            ["drivers/clk/clk_zynqmp.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_CLK_SCMI",
+            ["drivers/clk/clk_scmi.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SANDBOX",
+            [
+                "drivers/clk/clk_sandbox.c",
+                "drivers/clk/clk_sandbox_test.c",
+            ],
+        ),
+    textual_hdrs = glob(["drivers/clk/*.h"]),
+)
+
+# drivers/clk vendor subdirectories — empty targets for deps references.
+# These are SoC-specific and only compile for their respective architectures.
+[
+    uboot_cc_library(
+        name = "drivers_clk_" + vendor,
+    )
+    for vendor in [
+        "adi",
+        "analogbits",
+        "imx",
+        "tegra",
+        "ti",
+    ]
+]
+
+# drivers/clk vendor subdirectories (kconfig-gated)
+[
+    uboot_cc_library(
+        name = "drivers_clk_" + vendor,
+        srcs = kconfig_select(
+            config,
+            glob(
+                ["drivers/clk/" + vendor + "/**/*.c"],
+                allow_empty = True,
+            ),
+        ),
+        textual_hdrs = glob(
+            ["drivers/clk/" + vendor + "/**/*.h"],
+            allow_empty = True,
+        ),
+    )
+    for vendor, config in [
+        ("altera", "CONFIG_ARCH_SOCFPGA"),
+        ("aspeed", "CONFIG_ARCH_ASPEED"),
+        ("at91", "CONFIG_CLK_AT91"),
+        ("exynos", "CONFIG_CLK_EXYNOS"),
+        ("intel", "CONFIG_CLK_INTEL"),
+        ("mediatek", "CONFIG_ARCH_MEDIATEK"),
+        ("meson", "CONFIG_ARCH_MESON"),
+        ("microchip", "CONFIG_CLK_MPFS"),
+        ("mtmips", "CONFIG_ARCH_MTMIPS"),
+        ("mvebu", "CONFIG_CLK_MVEBU"),
+        ("nuvoton", "CONFIG_ARCH_NPCM"),
+        ("owl", "CONFIG_CLK_OWL"),
+        ("qcom", "CONFIG_CLK_QCOM"),
+        ("renesas", "CONFIG_CLK_RENESAS"),
+        ("rockchip", "CONFIG_ARCH_ROCKCHIP"),
+        ("sifive", "CONFIG_CLK_SIFIVE"),
+        ("sophgo", "CONFIG_CLK_SOPHGO"),
+        ("starfive", "CONFIG_CLK_JH7110"),
+        ("stm32", "CONFIG_ARCH_STM32"),
+        ("sunxi", "CONFIG_CLK_SUNXI"),
+        ("uniphier", "CONFIG_CLK_UNIPHIER"),
+    ]
+]
+
+uboot_cc_library(
+    name = "drivers_i2c",
+    srcs =
+        kconfig_select(
+            "CONFIG_DM_I2C",
+            [
+                "drivers/i2c/i2c-uclass.c",
+                "drivers/i2c/acpi_i2c.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_DM_I2C_GPIO",
+            ["drivers/i2c/i2c-gpio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SYS_I2C_DW",
+            ["drivers/i2c/designware_i2c.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SYS_I2C_MXC",
+            ["drivers/i2c/mxc_i2c.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SYS_I2C_SANDBOX",
+            [
+                "drivers/i2c/sandbox_i2c.c",
+                "drivers/i2c/i2c-emul-uclass.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_SYS_I2C_TEGRA",
+            ["drivers/i2c/tegra_i2c.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SYS_I2C_ROCKCHIP",
+            ["drivers/i2c/rk_i2c.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SYS_I2C_OMAP24XX",
+            ["drivers/i2c/omap24xx_i2c.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SYS_I2C_STM32F7",
+            ["drivers/i2c/stm32f7_i2c.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SYS_I2C_IMX_LPI2C",
+            ["drivers/i2c/imx_lpi2c.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_spi",
+    srcs = [
+        "drivers/spi/spi-uclass.c",
+    ] + kconfig_select(
+        "CONFIG_CADENCE_QSPI",
+        [
+            "drivers/spi/cadence_qspi.c",
+            "drivers/spi/cadence_qspi_apb.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_DESIGNWARE_SPI",
+        ["drivers/spi/designware_spi.c"],
+    ) + kconfig_select(
+        "CONFIG_ICH_SPI",
+        ["drivers/spi/ich.c"],
+    ) + kconfig_select(
+        "CONFIG_NXP_FSPI",
+        ["drivers/spi/nxp_fspi.c"],
+    ) + kconfig_select(
+        "CONFIG_ROCKCHIP_SPI",
+        ["drivers/spi/rk_spi.c"],
+    ) + kconfig_select(
+        "CONFIG_SANDBOX_SPI",
+        ["drivers/spi/sandbox_spi.c"],
+    ) + kconfig_select(
+        "CONFIG_SPI_MEM",
+        ["drivers/spi/spi-mem.c"],
+    ) + kconfig_select(
+        "CONFIG_SANDBOX",
+        ["drivers/spi/spi-emul-uclass.c"],
+    ) + kconfig_select(
+        "CONFIG_SOFT_SPI",
+        ["drivers/spi/soft_spi.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_mmc",
+    srcs = [
+        "drivers/mmc/mmc.c",
+    ] + kconfig_select(
+        "CONFIG_DM_MMC",
+        ["drivers/mmc/mmc-uclass.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTSTD",
+        ["drivers/mmc/mmc_bootdev.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_WRITE",
+        ["drivers/mmc/mmc_write.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_PWRSEQ",
+        ["drivers/mmc/mmc-pwrseq.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_ADMA_HELPERS",
+        ["drivers/mmc/sdhci-adma.c"],
+    ) + kconfig_select(
+        "CONFIG_SUPPORT_EMMC_BOOT",
+        ["drivers/mmc/mmc_boot.c"],
+    ) + kconfig_select(
+        "CONFIG_ARM_PL180_MMCI",
+        ["drivers/mmc/arm_pl180_mmci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_DAVINCI",
+        ["drivers/mmc/davinci_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_DW",
+        ["drivers/mmc/dw_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_DW_CORTINA",
+        ["drivers/mmc/ca_dw_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_DW_EXYNOS",
+        ["drivers/mmc/exynos_dw_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_DW_K3",
+        ["drivers/mmc/hi6220_dw_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_DW_ROCKCHIP",
+        ["drivers/mmc/rockchip_dw_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_DW_SOCFPGA",
+        ["drivers/mmc/socfpga_dw_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_DW_SNPS",
+        ["drivers/mmc/snps_dw_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_FSL_ESDHC",
+        ["drivers/mmc/fsl_esdhc.c"],
+    ) + kconfig_select(
+        "CONFIG_FSL_ESDHC_IMX",
+        ["drivers/mmc/fsl_esdhc_imx.c"],
+    ) + kconfig_select(
+        "CONFIG_FTSDC010",
+        ["drivers/mmc/ftsdc010_mci.c"],
+    ) + kconfig_select(
+        "CONFIG_GENERIC_ATMEL_MCI",
+        ["drivers/mmc/gen_atmel_mci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_MESON_GX",
+        ["drivers/mmc/meson_gx_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SPI",
+        ["drivers/mmc/mmc_spi.c"],
+    ) + kconfig_select(
+        "CONFIG_MVEBU_MMC",
+        ["drivers/mmc/mvebu_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_OMAP_HS",
+        ["drivers/mmc/omap_hsmmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_MXS",
+        ["drivers/mmc/mxsmmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_OCTEONTX",
+        ["drivers/mmc/octeontx_hsmmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_OWL",
+        ["drivers/mmc/owl_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_PCI",
+        ["drivers/mmc/pci_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_SUPPORT_EMMC_RPMB",
+        ["drivers/mmc/rpmb.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SANDBOX",
+        ["drivers/mmc/sandbox_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_SH_MMCIF",
+        ["drivers/mmc/sh_mmcif.c"],
+    ) + kconfig_select(
+        "CONFIG_STM32_SDMMC2",
+        ["drivers/mmc/stm32_sdmmc2.c"],
+    ) + kconfig_select(
+        "CONFIG_JZ47XX_MMC",
+        ["drivers/mmc/jz_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_NEXELL_DWMMC",
+        ["drivers/mmc/nexell_dw_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI",
+        ["drivers/mmc/sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_ASPEED",
+        ["drivers/mmc/aspeed_sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_ATMEL",
+        ["drivers/mmc/atmel_sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_CADENCE",
+        [
+            "drivers/mmc/sdhci-cadence.c",
+            "drivers/mmc/sdhci-cadence6.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_CV1800B",
+        ["drivers/mmc/cv1800b_sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_AM654",
+        ["drivers/mmc/am654_sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_IPROC",
+        ["drivers/mmc/iproc_sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_MSM",
+        ["drivers/mmc/msm_sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_MV",
+        ["drivers/mmc/mv_sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_NPCM",
+        ["drivers/mmc/npcm_sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_PIC32",
+        ["drivers/mmc/pic32_sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_ROCKCHIP",
+        ["drivers/mmc/rockchip_sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_S5P",
+        ["drivers/mmc/s5p_sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_STI",
+        ["drivers/mmc/sti_sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_TANGIER",
+        ["drivers/mmc/tangier_sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_TEGRA",
+        ["drivers/mmc/tegra_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_XENON",
+        ["drivers/mmc/xenon_sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_ZYNQ",
+        ["drivers/mmc/zynq_sdhci.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SUNXI",
+        ["drivers/mmc/sunxi_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_PITON",
+        ["drivers/mmc/piton_mmc.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_UNIPHIER",
+        [
+            "drivers/mmc/tmio-common.c",
+            "drivers/mmc/uniphier-sd.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_RENESAS_SDHI",
+        [
+            "drivers/mmc/tmio-common.c",
+            "drivers/mmc/renesas-sdhi.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_MMC_BCM2835",
+        ["drivers/mmc/bcm2835_sdhost.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_MTK",
+        ["drivers/mmc/mtk-sd.c"],
+    ) + kconfig_select(
+        "CONFIG_MMC_SDHCI_F_SDH30",
+        ["drivers/mmc/f_sdh30.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_net",
+    srcs =
+        kconfig_select(
+            "CONFIG_AG7XXX",
+            ["drivers/net/ag7xxx.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ALTERA_TSE",
+            ["drivers/net/altera_tse.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ASPEED_MDIO",
+            ["drivers/net/aspeed_mdio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_BCM6348_ETH",
+            ["drivers/net/bcm6348-eth.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_BCM6368_ETH",
+            ["drivers/net/bcm6368-eth.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_BCMGENET",
+            ["drivers/net/bcmgenet.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_CALXEDA_XGMAC",
+            ["drivers/net/calxedaxgmac.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_CORTINA_NI_ENET",
+            ["drivers/net/cortina_ni.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DM_ETH_PHY",
+            ["drivers/net/eth-phy-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DRIVER_DM9000",
+            ["drivers/net/dm9000x.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DSA_SANDBOX",
+            ["drivers/net/dsa_sandbox.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DWC_ETH_QOS",
+            ["drivers/net/dwc_eth_qos.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DWC_ETH_QOS_IMX",
+            ["drivers/net/dwc_eth_qos_imx.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DWC_ETH_QOS_INTEL",
+            ["drivers/net/dwc_eth_qos_intel.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DWC_ETH_QOS_ROCKCHIP",
+            ["drivers/net/dwc_eth_qos_rockchip.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DWC_ETH_QOS_QCOM",
+            ["drivers/net/dwc_eth_qos_qcom.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DWC_ETH_XGMAC",
+            ["drivers/net/dwc_eth_xgmac.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DWC_ETH_XGMAC_SOCFPGA",
+            ["drivers/net/dwc_eth_xgmac_socfpga.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DWC_ETH_QOS_STARFIVE",
+            ["drivers/net/dwc_eth_qos_starfive.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DWC_ETH_QOS_STM32",
+            ["drivers/net/dwc_eth_qos_stm32.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_E1000",
+            ["drivers/net/e1000.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_E1000_SPI",
+            ["drivers/net/e1000_spi.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_EEPRO100",
+            ["drivers/net/eepro100.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ESSEDMA",
+            ["drivers/net/essedma.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ETHOC",
+            ["drivers/net/ethoc.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ETH_DESIGNWARE",
+            ["drivers/net/designware.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ETH_DESIGNWARE_MESON8B",
+            ["drivers/net/dwmac_meson8b.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ETH_DESIGNWARE_S700",
+            ["drivers/net/dwmac_s700.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ETH_DESIGNWARE_SOCFPGA",
+            ["drivers/net/dwmac_socfpga.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ETH_SANDBOX",
+            ["drivers/net/sandbox.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ETH_SANDBOX_RAW",
+            [
+                "drivers/net/sandbox-raw-bus.c",
+                "drivers/net/sandbox-raw.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_FEC_MXC",
+            ["drivers/net/fec_mxc.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_FSL_ENETC",
+            [
+                "drivers/net/fsl_enetc.c",
+                "drivers/net/fsl_enetc_mdio.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_FSL_LS_MDIO",
+            ["drivers/net/fsl_ls_mdio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_FSL_MEMAC",
+            ["drivers/net/fm/memac_phy.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_FTGMAC100",
+            ["drivers/net/ftgmac100.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_FTMAC100",
+            ["drivers/net/ftmac100.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_GMAC_ROCKCHIP",
+            ["drivers/net/gmac_rockchip.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_HIFEMAC_ETH",
+            ["drivers/net/hifemac.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_HIFEMAC_MDIO",
+            ["drivers/net/hifemac_mdio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_HIGMACV300_ETH",
+            ["drivers/net/higmacv300.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_KS8851_MLL",
+            ["drivers/net/ks8851_mll.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_KSZ9477",
+            ["drivers/net/ksz9477.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_LITEETH",
+            ["drivers/net/liteeth.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MACB",
+            ["drivers/net/macb.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MCFFEC",
+            [
+                "drivers/net/mcffec.c",
+                "drivers/net/mcfmii.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_MDIO_IPQ4019",
+            ["drivers/net/mdio-ipq4019.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MDIO_MUX_I2CREG",
+            ["drivers/net/mdio_mux_i2creg.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MDIO_MUX_MESON_G12A",
+            ["drivers/net/mdio_mux_meson_g12a.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MDIO_MUX_MESON_GXL",
+            ["drivers/net/mdio_mux_meson_gxl.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MDIO_MUX_MMIOREG",
+            ["drivers/net/mdio_mux_mmioreg.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MDIO_MUX_SANDBOX",
+            ["drivers/net/mdio_mux_sandbox.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MDIO_SANDBOX",
+            ["drivers/net/mdio_sandbox.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MPC8XX_FEC",
+            ["drivers/net/mpc8xx_fec.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MT7620_ETH",
+            ["drivers/net/mt7620-eth.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MT7628_ETH",
+            ["drivers/net/mt7628-eth.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MV88E6XXX",
+            ["drivers/net/mv88e6xxx.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MVGBE",
+            ["drivers/net/mvgbe.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MVMDIO",
+            ["drivers/net/mvmdio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MVNETA",
+            ["drivers/net/mvneta.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MVPP2",
+            ["drivers/net/mvpp2.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_NETCONSOLE",
+            ["drivers/net/netconsole.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_NET_NPCM750",
+            ["drivers/net/npcm750_eth.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_PCH_GBE",
+            ["drivers/net/pch_gbe.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_PCNET",
+            ["drivers/net/pcnet.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_PIC32_ETH",
+            [
+                "drivers/net/pic32_mdio.c",
+                "drivers/net/pic32_eth.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_RENESAS_ETHER_SWITCH",
+            ["drivers/net/rswitch.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_RENESAS_RAVB",
+            ["drivers/net/ravb.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_RTL8139",
+            ["drivers/net/rtl8139.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_RTL8169",
+            ["drivers/net/rtl8169.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SH_ETHER",
+            ["drivers/net/sh_eth.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SJA1105",
+            ["drivers/net/sja1105.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SMC911X",
+            ["drivers/net/smc911x.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SNI_AVE",
+            ["drivers/net/sni_ave.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SNI_NETSEC",
+            ["drivers/net/sni_netsec.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SUN4I_EMAC",
+            ["drivers/net/sunxi_emac.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SUN8I_EMAC",
+            ["drivers/net/sun8i_emac.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_TSEC_ENET",
+            [
+                "drivers/net/tsec.c",
+                "drivers/net/fsl_mdio.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_TULIP",
+            ["drivers/net/dc2114x.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_VSC7385_ENET",
+            ["drivers/net/vsc7385.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_XILINX_AXIEMAC",
+            ["drivers/net/xilinx_axi_emac.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_XILINX_AXIMRMAC",
+            ["drivers/net/xilinx_axi_mrmac.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_XILINX_EMACLITE",
+            ["drivers/net/xilinx_emaclite.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ZYNQ_GEM",
+            ["drivers/net/zynq_gem.c"],
+        ),
+    deps = [
+        ":drivers_net_mscc",
+        ":drivers_net_phy",
+        ":drivers_net_qe",
+        ":drivers_net_ti",
+    ],
+)
+
+uboot_cc_library(
+    name = "drivers_net_phy",
+    srcs = glob(
+        ["drivers/net/phy/*.c"],
+        allow_empty = True,
+        exclude = [
+            "drivers/net/phy/b53.c",
+            "drivers/net/phy/cortina.c",
+            "drivers/net/phy/dp83869.c",
+            "drivers/net/phy/miiphybb.c",
+            "drivers/net/phy/motorcomm.c",
+            "drivers/net/phy/mv88e61xx.c",
+            "drivers/net/phy/teranetics.c",
+        ],
+    ),
+    textual_hdrs = glob(
+        ["drivers/net/phy/*.h"],
+        allow_empty = True,
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_net_ti",
+    srcs =
+        kconfig_select(
+            "CONFIG_DRIVER_TI_CPSW",
+            [
+                "drivers/net/ti/cpsw.c",
+                "drivers/net/ti/cpsw-common.c",
+                "drivers/net/ti/cpsw_mdio.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_DRIVER_TI_EMAC",
+            ["drivers/net/ti/davinci_emac.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DRIVER_TI_KEYSTONE_NET",
+            ["drivers/net/ti/keystone_net.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_TI_AM65_CPSW_NUSS",
+            ["drivers/net/ti/am65-cpsw-nuss.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MDIO_TI_CPSW",
+            ["drivers/net/ti/cpsw_mdio.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_TI_ICSSG_PRUETH",
+            [
+                "drivers/net/ti/icssg_prueth.c",
+                "drivers/net/ti/icssg_classifier.c",
+                "drivers/net/ti/icssg_config.c",
+                "drivers/net/ti/icssg_queues.c",
+            ],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_net_mscc",
+    srcs =
+        kconfig_select(
+            "CONFIG_MSCC_OCELOT_SWITCH",
+            [
+                "drivers/net/mscc_eswitch/ocelot_switch.c",
+                "drivers/net/mscc_eswitch/mscc_xfer.c",
+                "drivers/net/mscc_eswitch/mscc_mac_table.c",
+                "drivers/net/mscc_eswitch/mscc_miim.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_MSCC_LUTON_SWITCH",
+            [
+                "drivers/net/mscc_eswitch/luton_switch.c",
+                "drivers/net/mscc_eswitch/mscc_xfer.c",
+                "drivers/net/mscc_eswitch/mscc_mac_table.c",
+                "drivers/net/mscc_eswitch/mscc_miim.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_MSCC_JR2_SWITCH",
+            [
+                "drivers/net/mscc_eswitch/jr2_switch.c",
+                "drivers/net/mscc_eswitch/mscc_xfer.c",
+                "drivers/net/mscc_eswitch/mscc_miim.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_MSCC_FELIX_SWITCH",
+            ["drivers/net/mscc_eswitch/felix_switch.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_net_qe",
+    srcs = kconfig_select(
+        "CONFIG_QE_UEC",
+        [
+            "drivers/net/qe/dm_qe_uec.c",
+            "drivers/net/qe/dm_qe_uec_phy.c",
+            "drivers/net/qe/uccf.c",
+        ],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_pci",
+    srcs =
+        kconfig_select(
+            "CONFIG_PCI",
+            [
+                "drivers/pci/pci-uclass.c",
+                "drivers/pci/pci_auto.c",
+                "drivers/pci/pci_auto_common.c",
+                "drivers/pci/pci_common.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_PCI_SANDBOX",
+            ["drivers/pci/pci_sandbox.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SANDBOX",
+            ["drivers/pci/pci-emul-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_PCIE_ECAM_GENERIC",
+            ["drivers/pci/pcie_ecam_generic.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_PCIE_DW_COMMON",
+            ["drivers/pci/pcie_dw_common.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_pinctrl",
+    srcs = [
+        "drivers/pinctrl/pinctrl-uclass.c",
+    ] + kconfig_select(
+        "CONFIG_PINCTRL_GENERIC",
+        ["drivers/pinctrl/pinctrl-generic.c"],
+    ) + kconfig_select(
+        "CONFIG_PINCTRL_SANDBOX",
+        ["drivers/pinctrl/pinctrl-sandbox.c"],
+    ) + kconfig_select(
+        "CONFIG_PINCTRL_SINGLE",
+        ["drivers/pinctrl/pinctrl-single.c"],
+    ) + kconfig_select(
+        "CONFIG_PINCTRL_STM32",
+        ["drivers/pinctrl/pinctrl_stm32.c"],
+    ),
+)
+
+# drivers/pinctrl vendor subdirectories — SoC-specific, stubbed out
+[
+    uboot_cc_library(
+        name = "drivers_pinctrl_" + vendor,
+    )
+    for vendor in [
+        "nxp",
+        "broadcom",
+    ]
+]
+
+# drivers/pinctrl vendor subdirectories (kconfig-gated)
+[
+    uboot_cc_library(
+        name = "drivers_pinctrl_" + vendor,
+        srcs = kconfig_select(
+            config,
+            glob(
+                ["drivers/pinctrl/" + vendor + "/**/*.c"],
+                allow_empty = True,
+            ),
+        ),
+        textual_hdrs = glob(
+            ["drivers/pinctrl/" + vendor + "/**/*.h"],
+            allow_empty = True,
+        ),
+    )
+    for vendor, config in [
+        ("aspeed", "CONFIG_ARCH_ASPEED"),
+        ("ath79", "CONFIG_ARCH_ATH79"),
+        ("exynos", "CONFIG_PINCTRL_EXYNOS"),
+        ("intel", "CONFIG_PINCTRL_INTEL"),
+        ("mediatek", "CONFIG_PINCTRL_MTK"),
+        ("meson", "CONFIG_PINCTRL_MESON"),
+        ("mscc", "CONFIG_PINCTRL_MSCC"),
+        ("mtmips", "CONFIG_ARCH_MTMIPS"),
+        ("mvebu", "CONFIG_ARCH_MVEBU"),
+        ("nexell", "CONFIG_ARCH_NEXELL"),
+        ("nuvoton", "CONFIG_ARCH_NPCM"),
+        ("qcom", "CONFIG_PINCTRL_QCOM"),
+        ("renesas", "CONFIG_ARCH_RENESAS"),
+        ("rockchip", "CONFIG_PINCTRL_ROCKCHIP"),
+        ("starfive", "CONFIG_PINCTRL_STARFIVE"),
+        ("sunxi", "CONFIG_PINCTRL_SUNXI"),
+        ("tegra", "CONFIG_PINCTRL_TEGRA"),
+        ("uniphier", "CONFIG_PINCTRL_UNIPHIER"),
+    ]
+]
+
+uboot_cc_library(
+    name = "drivers_power",
+    srcs =
+        kconfig_select(
+            "CONFIG_POWER_DOMAIN",
+            glob(
+                ["drivers/power/domain/*.c"],
+                exclude = [
+                    "drivers/power/domain/apple-pmgr.c",
+                    "drivers/power/domain/imx8-power-domain.c",
+                    "drivers/power/domain/imx8-power-domain-legacy.c",
+                    "drivers/power/domain/imx8m-power-domain.c",
+                    "drivers/power/domain/meson-secure-pwrc.c",
+                    "drivers/power/domain/tegra186-power-domain.c",
+                    "drivers/power/domain/ti-sci-power-domain.c",
+                ],
+            ),
+        ) +
+        kconfig_select(
+            "CONFIG_POWER_LEGACY",
+            ["drivers/power/power_core.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_POWER_I2C",
+            ["drivers/power/power_i2c.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_power_pmic",
+    srcs =
+        kconfig_select(
+            "CONFIG_DM_PMIC",
+            ["drivers/power/pmic/pmic-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DM_PMIC_SANDBOX",
+            [
+                "drivers/power/pmic/sandbox.c",
+                "drivers/power/pmic/i2c_pmic_emul.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_PMIC_AXP",
+            ["drivers/power/pmic/axp.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_power_regulator",
+    srcs =
+        kconfig_select(
+            "CONFIG_DM_REGULATOR",
+            ["drivers/power/regulator/regulator-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DM_REGULATOR_COMMON",
+            ["drivers/power/regulator/regulator_common.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DM_REGULATOR_FIXED",
+            ["drivers/power/regulator/fixed.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DM_REGULATOR_GPIO",
+            ["drivers/power/regulator/gpio-regulator.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DM_REGULATOR_SANDBOX",
+            ["drivers/power/regulator/sandbox.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_REGULATOR_RK8XX",
+            ["drivers/power/regulator/rk8xx.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_REGULATOR_AXP",
+            ["drivers/power/regulator/axp_regulator.c"],
+        ),
+    textual_hdrs = glob(["drivers/power/regulator/*.h"]),
+)
+
+uboot_cc_library(
+    name = "drivers_phy",
+    srcs =
+        kconfig_select(
+            "CONFIG_PHY",
+            ["drivers/phy/phy-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_NOP_PHY",
+            ["drivers/phy/nop-phy.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_PHY_SANDBOX",
+            ["drivers/phy/sandbox-phy.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_timer",
+    srcs = [
+        "drivers/timer/timer-uclass.c",
+    ] + kconfig_select(
+        "CONFIG_SANDBOX_TIMER",
+        ["drivers/timer/sandbox_timer.c"],
+    ) + kconfig_select(
+        "CONFIG_X86_TSC_TIMER",
+        ["drivers/timer/tsc_timer.c"],
+    ) + kconfig_select(
+        "CONFIG_OMAP_TIMER",
+        ["drivers/timer/omap-timer.c"],
+    ) + kconfig_select(
+        "CONFIG_ROCKCHIP_TIMER",
+        ["drivers/timer/rockchip_timer.c"],
+    ) + kconfig_select(
+        "CONFIG_RISCV_TIMER",
+        ["drivers/timer/riscv_timer.c"],
+    ) + kconfig_select(
+        "CONFIG_RISCV_ACLINT",
+        ["drivers/timer/riscv_aclint_timer.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_watchdog",
+    srcs =
+        kconfig_select(
+            "CONFIG_WDT",
+            ["drivers/watchdog/wdt-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_WDT_SANDBOX",
+            ["drivers/watchdog/sandbox_wdt.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_video",
+    srcs = [
+        "drivers/video/console_core.c",
+    ] + kconfig_select(
+        "CONFIG_VIDEO",
+        [
+            "drivers/video/video-uclass.c",
+            "drivers/video/vidconsole-uclass.c",
+            "drivers/video/video_bmp.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_CONSOLE_NORMAL",
+        ["drivers/video/console_normal.c"],
+    ) + kconfig_select(
+        "CONFIG_VIDEO_SANDBOX_SDL",
+        ["drivers/video/sandbox_sdl.c"],
+    ) + kconfig_select(
+        "CONFIG_VIDEO_SIMPLE",
+        ["drivers/video/simplefb.c"],
+    ) + kconfig_select(
+        "CONFIG_BMP",
+        ["drivers/video/bmp.c"],
+    ),
+    textual_hdrs = glob(["drivers/video/**/*.h"]),
+)
+
+uboot_cc_library(
+    name = "drivers_usb_host",
+    srcs = [
+        "drivers/usb/host/usb-uclass.c",
+    ] + kconfig_select(
+        "CONFIG_SANDBOX",
+        ["drivers/usb/host/usb-sandbox.c"],
+    ) + kconfig_select(
+        "CONFIG_BOOTSTD",
+        ["drivers/usb/host/usb_bootdev.c"],
+    ) + kconfig_select(
+        "CONFIG_USB_XHCI_HCD",
+        [
+            "drivers/usb/host/xhci.c",
+            "drivers/usb/host/xhci-mem.c",
+            "drivers/usb/host/xhci-ring.c",
+        ],
+    ) + kconfig_select(
+        "CONFIG_USB_EHCI_HCD",
+        ["drivers/usb/host/ehci-hcd.c"],
+    ) + kconfig_select(
+        "CONFIG_USB_DWC2",
+        ["drivers/usb/host/dwc2.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_usb_common",
+    srcs =
+        kconfig_select(
+            "CONFIG_DM_USB",
+            ["drivers/usb/common/common.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_usb_gadget",
+    srcs =
+        kconfig_select(
+            "CONFIG_USB_GADGET",
+            [
+                "drivers/usb/gadget/epautoconf.c",
+                "drivers/usb/gadget/config.c",
+                "drivers/usb/gadget/usbstring.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_USB_FUNCTION_MASS_STORAGE",
+            ["drivers/usb/gadget/f_mass_storage.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_USB_FUNCTION_FASTBOOT",
+            ["drivers/usb/gadget/f_fastboot.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DFU_OVER_USB",
+            ["drivers/usb/gadget/f_dfu.c"],
+        ),
+    textual_hdrs = glob(["drivers/usb/gadget/**/*.h"]),
+)
+
+uboot_cc_library(
+    name = "drivers_mtd",
+    srcs =
+        kconfig_select(
+            "CONFIG_MTD",
+            [
+                "drivers/mtd/mtdcore.c",
+                "drivers/mtd/mtd_uboot.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_DM_MTD",
+            ["drivers/mtd/mtd-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MTD_PARTITIONS",
+            ["drivers/mtd/mtdpart.c"],
+        ),
+    textual_hdrs = glob(["drivers/mtd/*.h"]),
+)
+
+uboot_cc_library(
+    name = "drivers_mtd_spi",
+    srcs =
+        kconfig_select(
+            "CONFIG_DM_SPI_FLASH",
+            ["drivers/mtd/spi/sf-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SPI_FLASH",
+            ["drivers/mtd/spi/spi-nor-core.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SPI_FLASH_SANDBOX",
+            ["drivers/mtd/spi/sandbox.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SPI_FLASH_MTD",
+            ["drivers/mtd/spi/sf_mtd.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_BOOTDEV_SPI_FLASH",
+            ["drivers/mtd/spi/sf_bootdev.c"],
+        ),
+    textual_hdrs = glob(["drivers/mtd/spi/*.h"]),
+)
+
+uboot_cc_library(
+    name = "drivers_firmware",
+    srcs =
+        kconfig_select(
+            "CONFIG_FIRMWARE",
+            ["drivers/firmware/firmware-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ARM_PSCI_FW",
+            ["drivers/firmware/psci.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SANDBOX",
+            ["drivers/firmware/firmware-sandbox.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ZYNQMP_FIRMWARE",
+            ["drivers/firmware/firmware-zynqmp.c"],
+        ),
+    textual_hdrs = glob(["drivers/firmware/**/*.h"]),
+)
+
+uboot_cc_library(
+    name = "drivers_tpm",
+    srcs =
+        kconfig_select(
+            "CONFIG_TPM",
+            ["drivers/tpm/tpm-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_TPM_TIS_SANDBOX",
+            ["drivers/tpm/tpm_tis_sandbox.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_TPM2_TIS_SANDBOX",
+            ["drivers/tpm/tpm2_tis_sandbox.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SANDBOX",
+            ["drivers/tpm/sandbox_common.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_led",
+    srcs = [
+        "drivers/led/led-uclass.c",
+    ] + kconfig_select(
+        "CONFIG_LED_GPIO",
+        ["drivers/led/led_gpio.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_reset",
+    srcs =
+        kconfig_select(
+            "CONFIG_DM_RESET",
+            ["drivers/reset/reset-uclass.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_ram",
+    srcs =
+        kconfig_select(
+            "CONFIG_DM",
+            ["drivers/ram/ram-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SANDBOX",
+            ["drivers/ram/sandbox_ram.c"],
+        ),
+    textual_hdrs = glob(["drivers/ram/**/*.h"]),
+)
+
+uboot_cc_library(
+    name = "drivers_misc",
+    srcs = glob(
+        ["drivers/misc/*.c"],
+        exclude = [
+            "drivers/misc/*test*.c",
+            "drivers/misc/cbmem_console.c",
+            "drivers/misc/fsl_devdis.c",
+            "drivers/misc/fsl_iim.c",
+            "drivers/misc/fsl_portals.c",
+            "drivers/misc/fsl_sec_mon.c",
+            "drivers/misc/gpio_led.c",
+            "drivers/misc/ihs_fpga.c",
+            "drivers/misc/jz4780_efuse.c",
+            "drivers/misc/ls2_sfp.c",
+            "drivers/misc/mxc_ocotp.c",
+            "drivers/misc/mxs_ocotp.c",
+            "drivers/misc/npcm_otp.c",
+            "drivers/misc/status_led.c",
+            "drivers/misc/nuvoton_nct6102d.c",
+            "drivers/misc/pca9551_led.c",
+            "drivers/misc/smsc_lpc47m.c",
+            "drivers/misc/stm32mp_fuse.c",
+            "drivers/misc/tegra186_bpmp.c",
+            "drivers/misc/winbond_w83627.c",
+        ],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_block",
+    srcs =
+        kconfig_select(
+            "CONFIG_BLK",
+            glob(
+                ["drivers/block/*.c"],
+                exclude = [
+                    "drivers/block/blk_legacy.c",
+                    "drivers/block/ide.c",
+                ],
+            ),
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_dfu",
+    srcs =
+        kconfig_select(
+            "CONFIG_DFU",
+            glob(
+                ["drivers/dfu/*.c"],
+                exclude = [
+                    "drivers/dfu/dfu_mmc.c",
+                    "drivers/dfu/dfu_mtd.c",
+                    "drivers/dfu/dfu_nand.c",
+                    "drivers/dfu/dfu_ram.c",
+                    "drivers/dfu/dfu_scsi.c",
+                    "drivers/dfu/dfu_virt.c",
+                ],
+            ),
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_fastboot",
+    srcs =
+        kconfig_select(
+            "CONFIG_FASTBOOT",
+            glob(["drivers/fastboot/*.c"]),
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_virtio",
+    srcs =
+        kconfig_select(
+            "CONFIG_VIRTIO",
+            glob(["drivers/virtio/*.c"]),
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_rtc",
+    srcs = glob(
+        ["drivers/rtc/*.c"],
+        allow_empty = True,
+        exclude = [
+            "drivers/rtc/abx80x.c",
+            "drivers/rtc/ds1337.c",
+            "drivers/rtc/emul_rtc.c",
+            "drivers/rtc/mc13xxx-rtc.c",
+            "drivers/rtc/mcfrtc.c",
+            "drivers/rtc/mvrtc.c",
+            "drivers/rtc/mxsrtc.c",
+            "drivers/rtc/pl031.c",
+        ],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_input",
+    srcs =
+        kconfig_select(
+            "CONFIG_INPUT",
+            glob(
+                ["drivers/input/*.c"],
+                exclude = ["drivers/input/tegra-kbc.c"],
+            ),
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_sound",
+    srcs = glob(
+        ["drivers/sound/*.c"],
+        exclude = [
+            "drivers/sound/i8254_beep.c",
+            "drivers/sound/rockchip_sound.c",
+            "drivers/sound/samsung-i2s.c",
+            "drivers/sound/samsung_sound.c",
+            "drivers/sound/tegra_ahub.c",
+            "drivers/sound/tegra_i2s.c",
+            "drivers/sound/wm8994.c",
+        ],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_sysreset",
+    srcs =
+        kconfig_select(
+            "CONFIG_SYSRESET",
+            glob(
+                ["drivers/sysreset/*.c"],
+                exclude = [
+                    "drivers/sysreset/sysreset_ast.c",
+                    "drivers/sysreset/sysreset_at91.c",
+                    "drivers/sysreset/sysreset_microblaze.c",
+                    "drivers/sysreset/sysreset_mpc83xx.c",
+                    "drivers/sysreset/sysreset_rockchip.c",
+                    "drivers/sysreset/sysreset_sbi.c",
+                    "drivers/sysreset/sysreset_socfpga.c",
+                    "drivers/sysreset/sysreset_socfpga_soc64.c",
+                    "drivers/sysreset/sysreset_tegra.c",
+                    "drivers/sysreset/sysreset_x86.c",
+                    "drivers/sysreset/sysreset_xtfpga.c",
+                ],
+            ),
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_sysinfo",
+    srcs =
+        kconfig_select(
+            "CONFIG_SYSINFO",
+            glob(
+                ["drivers/sysinfo/*.c"],
+                exclude = [
+                    "drivers/sysinfo/smbios.c",
+                ],
+            ),
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_cpu",
+    srcs =
+        kconfig_select(
+            "CONFIG_CPU",
+            glob(
+                ["drivers/cpu/*.c"],
+                exclude = [
+                    "drivers/cpu/armv8_cpu.c",
+                    "drivers/cpu/bcm283x_cpu.c",
+                    "drivers/cpu/imx8_cpu.c",
+                    "drivers/cpu/microblaze_cpu.c",
+                    "drivers/cpu/mpc83xx_cpu.c",
+                    "drivers/cpu/riscv_cpu.c",
+                    "drivers/cpu/xtensa_cpu.c",
+                ],
+            ),
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_cache",
+    srcs = glob(
+        ["drivers/cache/*.c"],
+        exclude = [
+            "drivers/cache/cache-andes-l2.c",
+            "drivers/cache/cache-l2x0.c",
+            "drivers/cache/cache-sifive-ccache.c",
+        ],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_mailbox",
+    srcs =
+        kconfig_select(
+            "CONFIG_DM_MAILBOX",
+            glob(
+                ["drivers/mailbox/*.c"],
+                exclude = [],
+            ),
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_rng",
+    srcs =
+        kconfig_select(
+            "CONFIG_DM_RNG",
+            glob(
+                ["drivers/rng/*.c"],
+                exclude = [
+                    "drivers/rng/arm_rndr.c",
+                    "drivers/rng/riscv_zkr_rng.c",
+                    "drivers/rng/rockchip_rng.c",
+                    "drivers/rng/turris_rwtm_rng.c",
+                ],
+            ),
+        ),
+)
+
+# Unconditional driver subdirectories (obj-y in drivers/Makefile)
+
+uboot_cc_library(
+    name = "drivers_ata",
+    srcs =
+        kconfig_select(
+            "CONFIG_AHCI",
+            ["drivers/ata/ahci-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SCSI_AHCI",
+            ["drivers/ata/ahci.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_LIBATA",
+            ["drivers/ata/libata.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SATA",
+            [
+                "drivers/ata/sata.c",
+                "drivers/ata/sata_bootdev.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_DWC_AHCI",
+            ["drivers/ata/dwc_ahci.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_DWC_AHSATA",
+            ["drivers/ata/dwc_ahsata.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_AHCI_PCI",
+            ["drivers/ata/ahci-pci.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_axi",
+    srcs =
+        kconfig_select(
+            "CONFIG_AXI",
+            ["drivers/axi/axi-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_IHS_AXI",
+            ["drivers/axi/ihs_axi.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SANDBOX",
+            [
+                "drivers/axi/axi-emul-uclass.c",
+                "drivers/axi/sandbox_store.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_AXI_SANDBOX",
+            ["drivers/axi/axi_sandbox.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_bus",
+    srcs =
+        kconfig_select(
+            "CONFIG_TI_SYSC",
+            ["drivers/bus/ti-sysc.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_iommu",
+    srcs =
+        kconfig_select(
+            "CONFIG_IOMMU",
+            ["drivers/iommu/iommu-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_APPLE_DART",
+            ["drivers/iommu/apple_dart.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SANDBOX",
+            ["drivers/iommu/sandbox_iommu.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_memory",
+    srcs =
+        kconfig_select(
+            "CONFIG_MEMORY",
+            ["drivers/memory/memory-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SANDBOX_MEMORY",
+            ["drivers/memory/memory-sandbox.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_STM32_FMC2_EBI",
+            ["drivers/memory/stm32-fmc2-ebi.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_TI_GPMC",
+            ["drivers/memory/ti-gpmc.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_mfd",
+    srcs =
+        kconfig_select(
+            "CONFIG_MFD_ATMEL_SMC",
+            ["drivers/mfd/atmel-smc.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_pwm",
+    srcs =
+        kconfig_select(
+            "CONFIG_DM_PWM",
+            ["drivers/pwm/pwm-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_PWM_SANDBOX",
+            ["drivers/pwm/sandbox_pwm.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_PWM_ROCKCHIP",
+            ["drivers/pwm/rk_pwm.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_PWM_TEGRA",
+            ["drivers/pwm/tegra_pwm.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_PWM_SUNXI",
+            ["drivers/pwm/sunxi_pwm.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_PWM_IMX",
+            ["drivers/pwm/pwm-imx.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_PWM_SIFIVE",
+            ["drivers/pwm/pwm-sifive.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_PWM_MESON",
+            ["drivers/pwm/pwm-meson.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_scsi",
+    srcs =
+        kconfig_select(
+            "CONFIG_SCSI",
+            [
+                "drivers/scsi/scsi.c",
+                "drivers/scsi/scsi-uclass.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_SANDBOX",
+            [
+                "drivers/scsi/sandbox_scsi.c",
+                "drivers/scsi/scsi_emul.c",
+            ],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_smem",
+    srcs =
+        kconfig_select(
+            "CONFIG_SMEM",
+            ["drivers/smem/smem-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SANDBOX_SMEM",
+            ["drivers/smem/sandbox_smem.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_MSM_SMEM",
+            ["drivers/smem/msm_smem.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_soc",
+    srcs =
+        kconfig_select(
+            "CONFIG_SOC_DEVICE",
+            ["drivers/soc/soc-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SANDBOX",
+            ["drivers/soc/soc_sandbox.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SOC_XILINX_ZYNQMP",
+            ["drivers/soc/soc_xilinx_zynqmp.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SOC_XILINX_VERSAL",
+            ["drivers/soc/soc_xilinx_versal.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_spmi",
+    srcs =
+        kconfig_select(
+            "CONFIG_SPMI",
+            ["drivers/spmi/spmi-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SPMI_MSM",
+            ["drivers/spmi/spmi-msm.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SPMI_SANDBOX",
+            ["drivers/spmi/spmi-sandbox.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_thermal",
+    srcs =
+        kconfig_select(
+            "CONFIG_DM_THERMAL",
+            ["drivers/thermal/thermal-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_IMX_THERMAL",
+            ["drivers/thermal/imx_thermal.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SANDBOX",
+            ["drivers/thermal/thermal_sandbox.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_ufs",
+    srcs =
+        kconfig_select(
+            "CONFIG_UFS",
+            ["drivers/ufs/ufs-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_CADENCE_UFS",
+            ["drivers/ufs/cdns-platform.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_UFS_PCI",
+            ["drivers/ufs/ufs-pci.c"],
+        ),
+)
+
+# Kconfig-guarded driver subdirectories
+
+uboot_cc_library(
+    name = "drivers_adc",
+    srcs =
+        kconfig_select(
+            "CONFIG_ADC",
+            ["drivers/adc/adc-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_ADC_SANDBOX",
+            ["drivers/adc/sandbox.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SARADC_ROCKCHIP",
+            ["drivers/adc/rockchip-saradc.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_STM32_ADC",
+            [
+                "drivers/adc/stm32-adc.c",
+                "drivers/adc/stm32-adc-core.c",
+            ],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_bootcount",
+    srcs =
+        kconfig_select(
+            "CONFIG_DM_BOOTCOUNT",
+            ["drivers/bootcount/bootcount-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_BOOTCOUNT_GENERIC",
+            ["drivers/bootcount/bootcount.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_BOOTCOUNT_ENV",
+            ["drivers/bootcount/bootcount_env.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_BOOTCOUNT_RAM",
+            ["drivers/bootcount/bootcount_ram.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_button",
+    srcs =
+        kconfig_select(
+            "CONFIG_BUTTON",
+            ["drivers/button/button-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_BUTTON_ADC",
+            ["drivers/button/button-adc.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_BUTTON_GPIO",
+            ["drivers/button/button-gpio.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_dma",
+    srcs =
+        kconfig_select(
+            "CONFIG_DMA",
+            ["drivers/dma/dma-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_SANDBOX_DMA",
+            ["drivers/dma/sandbox-dma-test.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_extcon",
+    srcs = glob(["drivers/extcon/*.c"]),
+)
+
+uboot_cc_library(
+    name = "drivers_fpga",
+    srcs = kconfig_select(
+        "CONFIG_FPGA",
+        ["drivers/fpga/fpga.c"],
+    ) + kconfig_select(
+               "CONFIG_DM_FPGA",
+               ["drivers/fpga/fpga-uclass.c"],
+           ) + kconfig_select(
+        "CONFIG_SANDBOX_FPGA",
+        ["drivers/fpga/sandbox.c"],
+    ) + kconfig_select(
+        "CONFIG_FPGA_XILINX",
+        ["drivers/fpga/xilinx.c"],
+    ) + kconfig_select(
+        "CONFIG_FPGA_ZYNQPL",
+        ["drivers/fpga/zynqpl.c"],
+    ) + kconfig_select(
+        "CONFIG_FPGA_ZYNQMPPL",
+        ["drivers/fpga/zynqmppl.c"],
+    ) + kconfig_select(
+        "CONFIG_FPGA_VERSALPL",
+        ["drivers/fpga/versalpl.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_fwu_mdata",
+    srcs = glob(["drivers/fwu-mdata/*.c"]),
+)
+
+uboot_cc_library(
+    name = "drivers_hwspinlock",
+    srcs = glob(["drivers/hwspinlock/*.c"]),
+)
+
+uboot_cc_library(
+    name = "drivers_i3c",
+)
+
+uboot_cc_library(
+    name = "drivers_mux",
+    srcs = glob(["drivers/mux/*.c"]),
+)
+
+uboot_cc_library(
+    name = "drivers_nvme",
+    srcs = [
+        "drivers/nvme/nvme.c",
+        "drivers/nvme/nvme-uclass.c",
+        "drivers/nvme/nvme_show.c",
+    ] + kconfig_select(
+        "CONFIG_NVME_PCI",
+        ["drivers/nvme/nvme_pci.c"],
+    ) + kconfig_select(
+        "CONFIG_NVME_APPLE",
+        ["drivers/nvme/nvme_apple.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_pci_endpoint",
+    srcs = glob(
+        ["drivers/pci_endpoint/*.c"],
+        exclude = [],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_qe",
+    srcs = glob(
+        ["drivers/qe/*.c"],
+        exclude = ["drivers/qe/qe.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_reboot_mode",
+    srcs = glob(["drivers/reboot-mode/*.c"]),
+)
+
+uboot_cc_library(
+    name = "drivers_remoteproc",
+    srcs = glob(
+        ["drivers/remoteproc/*.c"],
+        exclude = [
+            "drivers/remoteproc/stm32_copro.c",
+            "drivers/remoteproc/ti_k3_arm64_rproc.c",
+            "drivers/remoteproc/ti_k3_dsp_rproc.c",
+            "drivers/remoteproc/ti_k3_r5f_rproc.c",
+            "drivers/remoteproc/ti_power_proc.c",
+        ],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_sm",
+    srcs = glob(
+        ["drivers/sm/*.c"],
+        exclude = ["drivers/sm/meson-sm.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_tee",
+    srcs = ["drivers/tee/tee-uclass.c"] +
+           kconfig_select(
+               "CONFIG_OPTEE",
+               glob(["drivers/tee/optee/*.c"]),
+           ) + kconfig_select(
+        "CONFIG_SANDBOX_TEE",
+        ["drivers/tee/sandbox.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_w1",
+    srcs = glob(
+        ["drivers/w1/*.c"],
+        exclude = ["drivers/w1/mxc_w1.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_w1_eeprom",
+    srcs = glob(["drivers/w1-eeprom/*.c"]),
+)
+
+uboot_cc_library(
+    name = "drivers_xen",
+    srcs = select({
+        ":arch_arm": glob(["drivers/xen/*.c"]),
+        "//conditions:default": [],
+    }),
+)
+
+uboot_cc_library(
+    name = "drivers_fuzz",
+    srcs = glob(["drivers/fuzz/*.c"]),
+)
+
+# Additional USB subdirectories
+
+uboot_cc_library(
+    name = "drivers_usb_dwc3",
+    srcs = glob(
+        ["drivers/usb/dwc3/*.c"],
+        exclude = [
+            "drivers/usb/dwc3/gadget.c",
+            "drivers/usb/dwc3/samsung_usb_phy.c",
+            "drivers/usb/dwc3/ti_usb_phy.c",
+        ],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_usb_cdns3",
+    srcs = glob(
+        ["drivers/usb/cdns3/*.c"],
+        exclude = ["drivers/usb/cdns3/gadget.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_usb_emul",
+    srcs = glob(["drivers/usb/emul/*.c"]),
+)
+
+uboot_cc_library(
+    name = "drivers_usb_eth",
+    srcs = glob(["drivers/usb/eth/*.c"]),
+)
+
+uboot_cc_library(
+    name = "drivers_usb_musb_new",
+    srcs = glob(
+        ["drivers/usb/musb-new/*.c"],
+        exclude = [
+            "drivers/usb/musb-new/am35x.c",
+            "drivers/usb/musb-new/da8xx.c",
+            "drivers/usb/musb-new/musb_core.c",
+            "drivers/usb/musb-new/musb_dsps.c",
+            "drivers/usb/musb-new/musb_gadget.c",
+            "drivers/usb/musb-new/omap2430.c",
+            "drivers/usb/musb-new/sunxi.c",
+            "drivers/usb/musb-new/ti-musb.c",
+        ],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_usb_phy",
+    srcs = glob(["drivers/usb/phy/*.c"]),
+)
+
+uboot_cc_library(
+    name = "drivers_usb_ulpi",
+    srcs = glob(["drivers/usb/ulpi/*.c"]),
+)
+
+uboot_cc_library(
+    name = "drivers_usb_gadget_udc",
+    srcs = glob(["drivers/usb/gadget/udc/*.c"]),
+)
+
+# Missing filesystem subdirectories
+
+uboot_cc_library(
+    name = "fs_btrfs",
+    srcs = glob(["fs/btrfs/*.c"]),
+    textual_hdrs = glob(["fs/btrfs/**/*.h"]),
+)
+
+uboot_cc_library(
+    name = "fs_cbfs",
+    srcs = glob(["fs/cbfs/*.c"]),
+)
+
+uboot_cc_library(
+    name = "fs_cramfs",
+    srcs = glob(["fs/cramfs/*.c"]),
+)
+
+uboot_cc_library(
+    name = "fs_exfat",
+)
+
+uboot_cc_library(
+    name = "fs_jffs2",
+    srcs = kconfig_select(
+        "CONFIG_FS_JFFS2",
+        glob(
+            ["fs/jffs2/*.c"],
+            exclude = ["fs/jffs2/mergesort.c"],
+        ),
+    ),
+)
+
+uboot_cc_library(
+    name = "fs_ubifs",
+)
+
+uboot_cc_library(
+    name = "fs_zfs",
+    srcs = glob(["fs/zfs/*.c"]),
+)
+
+uboot_cc_library(
+    name = "fs_squashfs",
+    srcs = glob(["fs/squashfs/*.c"]),
+)
+
+uboot_cc_library(
+    name = "fs_erofs",
+    srcs = glob(["fs/erofs/*.c"]),
+)
+
+# Missing lib/ subdirectories
+
+uboot_cc_library(
+    name = "lib_aes",
+    srcs = kconfig_select(
+        "CONFIG_FIT_CIPHER",
+        ["lib/aes/aes-decrypt.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "lib_at91",
+    srcs = glob(["lib/at91/*.c"]),
+)
+
+uboot_cc_library(
+    name = "lib_blake2",
+    srcs = glob(["lib/blake2/*.c"]),
+)
+
+uboot_cc_library(
+    name = "lib_crypt",
+    srcs = glob(["lib/crypt/*.c"]),
+)
+
+uboot_cc_library(
+    name = "lib_dhry",
+    srcs = glob(["lib/dhry/*.c"]),
+)
+
+uboot_cc_library(
+    name = "lib_ecdsa",
+    srcs = kconfig_select(
+        "CONFIG_ECDSA_VERIFY",
+        ["lib/ecdsa/ecdsa-verify.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "lib_efi_client",
+)
+
+uboot_cc_library(
+    name = "lib_efi_driver",
+    srcs = glob(
+        ["lib/efi_driver/*.c"],
+        exclude = ["lib/efi_driver/efi_reset_riscv.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "lib_efi_selftest",
+    srcs = kconfig_select(
+        "CONFIG_CMD_BOOTEFI_SELFTEST",
+        glob(
+            ["lib/efi_selftest/*.c"],
+            exclude = [
+                "lib/efi_selftest/efi_freestanding.c",
+                "lib/efi_selftest/efi_selftest_miniapp_exception.c",
+                "lib/efi_selftest/efi_selftest_miniapp_exit.c",
+                "lib/efi_selftest/efi_selftest_miniapp_return.c",
+                "lib/efi_selftest/efi_selftest_exception.c",
+                "lib/efi_selftest/efi_selftest_hii.c",
+                "lib/efi_selftest/efi_selftest_hii_data.c",
+                "lib/efi_selftest/efi_selftest_load_file.c",
+                "lib/efi_selftest/efi_selftest_loadimage.c",
+                "lib/efi_selftest/efi_selftest_startimage_exit.c",
+                "lib/efi_selftest/efi_selftest_startimage_return.c",
+                "lib/efi_selftest/efi_selftest_unaligned.c",
+            ],
+        ),
+    ),
+)
+
+uboot_cc_library(
+    name = "lib_fwu_updates",
+    srcs = kconfig_select(
+        "CONFIG_FWU_MULTI_BANK_UPDATE",
+        glob(["lib/fwu_updates/*.c"]),
+    ),
+)
+
+uboot_cc_library(
+    name = "lib_libavb",
+    srcs = kconfig_select(
+        "CONFIG_LIBAVB",
+        glob(["lib/libavb/*.c"]),
+    ),
+    local_defines = ["AVB_COMPILATION"],
+)
+
+uboot_cc_library(
+    name = "lib_lwip",
+    srcs = kconfig_select(
+        "CONFIG_NET_LWIP",
+        glob(["lib/lwip/**/*.c"]),
+    ),
+)
+
+uboot_cc_library(
+    name = "lib_mbedtls",
+    srcs = kconfig_select(
+        "CONFIG_MBEDTLS_LIB",
+        glob(["lib/mbedtls/*.c"]) + [
+            "lib/mbedtls/external/mbedtls/library/asn1parse.c",
+            "lib/mbedtls/external/mbedtls/library/asn1write.c",
+            "lib/mbedtls/external/mbedtls/library/bignum.c",
+            "lib/mbedtls/external/mbedtls/library/bignum_core.c",
+            "lib/mbedtls/external/mbedtls/library/constant_time.c",
+            "lib/mbedtls/external/mbedtls/library/md.c",
+            "lib/mbedtls/external/mbedtls/library/oid.c",
+            "lib/mbedtls/external/mbedtls/library/pk.c",
+            "lib/mbedtls/external/mbedtls/library/pk_wrap.c",
+            "lib/mbedtls/external/mbedtls/library/pkcs7.c",
+            "lib/mbedtls/external/mbedtls/library/pkparse.c",
+            "lib/mbedtls/external/mbedtls/library/platform_util.c",
+            "lib/mbedtls/external/mbedtls/library/rsa.c",
+            "lib/mbedtls/external/mbedtls/library/rsa_alt_helpers.c",
+        ],
+    ),
+)
+
+uboot_cc_library(
+    name = "lib_rsa",
+    srcs = kconfig_select(
+        "CONFIG_RSA_VERIFY",
+        ["lib/rsa/rsa-verify.c"],
+    ) + kconfig_select(
+        "CONFIG_RSA_VERIFY_WITH_PKEY",
+        ["lib/rsa/rsa-keyprop.c"],
+    ) + kconfig_select(
+        "CONFIG_RSA_SOFTWARE_EXP",
+        ["lib/rsa/rsa-mod-exp.c"],
+    ),
+)
+
+# Missing cmd/ subdirectories
+
+uboot_cc_library(
+    name = "cmd_arm",
+    srcs = select({
+        ":arch_arm": glob(["cmd/arm/*.c"]),
+        "//conditions:default": [],
+    }),
+)
+
+uboot_cc_library(
+    name = "cmd_riscv",
+    srcs = select({
+        ":arch_riscv": glob(["cmd/riscv/*.c"]),
+        "//conditions:default": [],
+    }),
+)
+
+uboot_cc_library(
+    name = "cmd_sandbox",
+    srcs = select({
+        ":arch_sandbox": glob(["cmd/sandbox/*.c"]),
+        "//conditions:default": [],
+    }),
+)
+
+uboot_cc_library(
+    name = "cmd_x86",
+    srcs = select({
+        ":arch_x86": glob(["cmd/x86/*.c"]),
+        "//conditions:default": [],
+    }),
+)
+
+uboot_cc_library(
+    name = "cmd_meson",
+)
+
+uboot_cc_library(
+    name = "cmd_mvebu",
+)
+
+uboot_cc_library(
+    name = "cmd_ti",
+)
+
+uboot_cc_library(
+    name = "cmd_broadcom",
+)
+
+# --- test/ ---
+
+uboot_cc_library(
+    name = "test_framework",
+    srcs =
+        kconfig_select(
+            "CONFIG_UNIT_TEST",
+            [
+                "test/test-main.c",
+                "test/ut.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_HUSH_OLD_PARSER",
+            ["test/cmd_ut.c"],
+        ),
+    textual_hdrs = glob(["test/**/*.h"]),
+)
+
+uboot_cc_library(
+    name = "test_lib",
+    srcs = kconfig_select(
+        "CONFIG_UNIT_TEST",
+        glob(["test/lib/*.c"]),
+    ),
+)
+
+uboot_cc_library(
+    name = "test_env",
+    srcs = kconfig_select(
+        "CONFIG_UNIT_TEST",
+        glob(["test/env/*.c"]),
+    ),
+)
+
+uboot_cc_library(
+    name = "test_common",
+    srcs = kconfig_select(
+        "CONFIG_UNIT_TEST",
+        glob(["test/common/*.c"]),
+    ),
+)
+
+uboot_cc_library(
+    name = "test_log",
+    srcs = kconfig_select(
+        "CONFIG_UNIT_TEST",
+        glob(["test/log/*.c"]),
+    ),
+)
+
+uboot_cc_library(
+    name = "test_boot",
+    srcs = kconfig_select(
+        "CONFIG_UNIT_TEST",
+        glob(["test/boot/*.c"]),
+    ),
+    textual_hdrs = glob(["test/boot/**/*.h"]),
+)
+
+uboot_cc_library(
+    name = "test_dm",
+    srcs = kconfig_select(
+        "CONFIG_UNIT_TEST",
+        glob(
+            ["test/dm/*.c"],
+            exclude = [
+                "test/dm/cache.c",
+                "test/dm/gpio.c",
+                "test/dm/of_platdata.c",
+            ],
+        ),
+    ),
+)
+
+uboot_cc_library(
+    name = "test_cmd",
+    srcs = kconfig_select(
+        "CONFIG_HUSH_OLD_PARSER",
+        glob(
+            ["test/cmd/*.c"],
+            exclude = ["test/cmd/coreboot.c"],
+        ),
+    ),
+)
+
+uboot_cc_library(
+    name = "test_hush",
+    srcs = kconfig_select(
+        "CONFIG_HUSH_OLD_PARSER",
+        glob(["test/hush/*.c"]),
+    ),
+)
+
+uboot_cc_library(
+    name = "test_fdt_overlay",
+)
+
+uboot_cc_library(
+    name = "test_optee",
+    srcs = kconfig_select(
+        "CONFIG_UT_OPTEE",
+        glob(["test/optee/*.c"]),
+    ),
+)
+
+uboot_cc_library(
+    name = "test_fuzz",
+    srcs = kconfig_select(
+        "CONFIG_FUZZ",
+        glob(["test/fuzz/*.c"]),
+    ),
+)
+
+# --- arch/ ---
+
+uboot_cc_library(
+    name = "arch_sandbox_cpu",
+    srcs = select({
+        ":arch_sandbox": [
+            "arch/sandbox/cpu/cache.c",
+            "arch/sandbox/cpu/cpu.c",
+            "arch/sandbox/cpu/state.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+cc_library(
+    name = "arch_sandbox_cpu_os",
+    srcs = select({
+        ":arch_sandbox": [
+            "arch/sandbox/cpu/eth-raw-os.c",
+            "arch/sandbox/cpu/os.c",
+        ] + glob([
+            "include/**/*.h",
+            "arch/sandbox/include/**/*.h",
+        ]) + _GENERATED_HDRS + [
+            "include/generated/asm-offsets.h",
+            "include/generated/generic-asm-offsets.h",
+        ],
+        "//conditions:default": [],
+    }),
+    copts = [
+        "-include",
+        "include/linux/kconfig.h",
+        "-D__KERNEL__",
+        "-D__UBOOT__",
+        "-idirafter",
+        "external/u-boot+",
+        "-idirafter",
+        "external/u-boot+/include",
+        "-idirafter",
+        "external/u-boot+/arch/sandbox/include",
+        "-idirafter",
+        "$(GENDIR)/external/u-boot+",
+        "-idirafter",
+        "$(GENDIR)/external/u-boot+/include",
+    ],
+    alwayslink = True,
+    features = ["-supports_dynamic_linker"],
+    deps = [
+        "@u-boot_kconfig//:config",
+    ],
+)
+
+uboot_cc_library(
+    name = "arch_sandbox_lib",
+    srcs = select({
+        ":arch_sandbox": [
+            "arch/sandbox/lib/fdt_fixup.c",
+            "arch/sandbox/lib/interrupts.c",
+            "arch/sandbox/lib/pci_io.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+uboot_cc_library(
+    name = "arch_arm_cpu_armv8",
+    srcs = select({
+        ":arch_arm": [
+            "arch/arm/cpu/armv8/cache.S",
+            "arch/arm/cpu/armv8/cache_v8.c",
+            "arch/arm/cpu/armv8/cpu.c",
+            "arch/arm/cpu/armv8/cpu-dt.c",
+            "arch/arm/cpu/armv8/exception_level.c",
+            "arch/arm/cpu/armv8/exceptions.S",
+            "arch/arm/cpu/armv8/smccc-call.S",
+            "arch/arm/cpu/armv8/tlb.S",
+            "arch/arm/cpu/armv8/transition.S",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+uboot_cc_library(
+    name = "arch_arm_lib",
+    srcs = select({
+        ":arch_arm": [
+            "arch/arm/lib/bdinfo.c",
+            "arch/arm/lib/bootm-fdt.c",
+            "arch/arm/lib/bootm.c",
+            "arch/arm/lib/cache.c",
+            "arch/arm/lib/interrupts.c",
+            "arch/arm/lib/reset.c",
+            "arch/arm/lib/sections.c",
+            "arch/arm/lib/stack.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+uboot_cc_library(
+    name = "arch_riscv_cpu",
+    srcs = select({
+        ":arch_riscv": [
+            "arch/riscv/cpu/cpu.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+uboot_cc_library(
+    name = "arch_riscv_lib",
+    srcs = select({
+        ":arch_riscv": [
+            "arch/riscv/lib/cache.c",
+            "arch/riscv/lib/fdt_fixup.c",
+            "arch/riscv/lib/interrupts.c",
+            "arch/riscv/lib/reset.c",
+            "arch/riscv/lib/sbi.c",
+            "arch/riscv/lib/setjmp.S",
+            "arch/riscv/lib/smp.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+# --- ARM armv7 ---
+
+uboot_cc_library(
+    name = "arch_arm_cpu_armv7",
+    srcs = select({
+        ":arch_arm": [
+            "arch/arm/cpu/armv7/cache_v7.c",
+            "arch/arm/cpu/armv7/cache_v7_asm.S",
+            "arch/arm/cpu/armv7/cp15.c",
+            "arch/arm/cpu/armv7/cpu.c",
+            "arch/arm/cpu/armv7/exception_level.c",
+            "arch/arm/cpu/armv7/lowlevel_init.S",
+            "arch/arm/cpu/armv7/nonsec_virt.S",
+            "arch/arm/cpu/armv7/smccc-call.S",
+            "arch/arm/cpu/armv7/syslib.c",
+            "arch/arm/cpu/armv7/virt-dt.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+# --- x86 ---
+
+uboot_cc_library(
+    name = "arch_x86_cpu",
+    srcs = select({
+        ":arch_x86": [
+            "arch/x86/cpu/cpu.c",
+            "arch/x86/cpu/cpu_x86.c",
+            "arch/x86/cpu/ioapic.c",
+            "arch/x86/cpu/lapic.c",
+            "arch/x86/cpu/mp_init.c",
+            "arch/x86/cpu/mtrr.c",
+            "arch/x86/cpu/pci.c",
+            "arch/x86/cpu/qfw_cpu.c",
+            "arch/x86/cpu/turbo.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+uboot_cc_library(
+    name = "arch_x86_lib",
+    srcs = select({
+        ":arch_x86": [
+            "arch/x86/lib/acpi.c",
+            "arch/x86/lib/acpi_table.c",
+            "arch/x86/lib/acpigen.c",
+            "arch/x86/lib/bdinfo.c",
+            "arch/x86/lib/bootm.c",
+            "arch/x86/lib/cmd_boot.c",
+            "arch/x86/lib/e820.c",
+            "arch/x86/lib/early_cmos.c",
+            "arch/x86/lib/init_helpers.c",
+            "arch/x86/lib/interrupts.c",
+            "arch/x86/lib/lpc-uclass.c",
+            "arch/x86/lib/mpspec.c",
+            "arch/x86/lib/northbridge-uclass.c",
+            "arch/x86/lib/physmem.c",
+            "arch/x86/lib/pirq_routing.c",
+            "arch/x86/lib/relocate.c",
+            "arch/x86/lib/sections.c",
+            "arch/x86/lib/sfi.c",
+            "arch/x86/lib/spl.c",
+            "arch/x86/lib/tables.c",
+            "arch/x86/lib/tpl.c",
+            "arch/x86/lib/zimage.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+# --- MIPS ---
+
+uboot_cc_library(
+    name = "arch_mips_cpu",
+    srcs = select({
+        ":arch_mips": [
+            "arch/mips/cpu/cpu.c",
+            "arch/mips/cpu/interrupts.c",
+            "arch/mips/cpu/time.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+uboot_cc_library(
+    name = "arch_mips_lib",
+    srcs = select({
+        ":arch_mips": [
+            "arch/mips/lib/bootm.c",
+            "arch/mips/lib/cache.c",
+            "arch/mips/lib/cache_init.S",
+            "arch/mips/lib/genex.S",
+            "arch/mips/lib/reloc.c",
+            "arch/mips/lib/stack.c",
+            "arch/mips/lib/traps.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+# --- PowerPC ---
+
+uboot_cc_library(
+    name = "arch_powerpc_lib",
+    srcs = select({
+        ":arch_powerpc": [
+            "arch/powerpc/lib/bdinfo.c",
+            "arch/powerpc/lib/bootm.c",
+            "arch/powerpc/lib/cache.c",
+            "arch/powerpc/lib/extable.c",
+            "arch/powerpc/lib/interrupts.c",
+            "arch/powerpc/lib/misc.c",
+            "arch/powerpc/lib/ppccache.S",
+            "arch/powerpc/lib/ppcstring.S",
+            "arch/powerpc/lib/reloc.S",
+            "arch/powerpc/lib/stack.c",
+            "arch/powerpc/lib/ticks.S",
+            "arch/powerpc/lib/time.c",
+            "arch/powerpc/lib/traps.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+# --- M68k ---
+
+uboot_cc_library(
+    name = "arch_m68k_lib",
+    srcs = select({
+        ":arch_m68k": [
+            "arch/m68k/lib/bdinfo.c",
+            "arch/m68k/lib/bootm.c",
+            "arch/m68k/lib/cache.c",
+            "arch/m68k/lib/fec.c",
+            "arch/m68k/lib/interrupts.c",
+            "arch/m68k/lib/time.c",
+            "arch/m68k/lib/traps.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+# --- Microblaze ---
+
+uboot_cc_library(
+    name = "arch_microblaze_cpu",
+    srcs = select({
+        ":arch_microblaze": [
+            "arch/microblaze/cpu/cache.c",
+            "arch/microblaze/cpu/cpuinfo.c",
+            "arch/microblaze/cpu/exception.c",
+            "arch/microblaze/cpu/interrupts.c",
+            "arch/microblaze/cpu/irq.S",
+            "arch/microblaze/cpu/relocate.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+uboot_cc_library(
+    name = "arch_microblaze_lib",
+    srcs = select({
+        ":arch_microblaze": [
+            "arch/microblaze/lib/bootm.c",
+            "arch/microblaze/lib/muldi3.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+# --- NIOS2 ---
+
+uboot_cc_library(
+    name = "arch_nios2_cpu",
+    srcs = select({
+        ":arch_nios2": [
+            "arch/nios2/cpu/cpu.c",
+            "arch/nios2/cpu/exceptions.S",
+            "arch/nios2/cpu/interrupts.c",
+            "arch/nios2/cpu/traps.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+uboot_cc_library(
+    name = "arch_nios2_lib",
+    srcs = select({
+        ":arch_nios2": [
+            "arch/nios2/lib/bootm.c",
+            "arch/nios2/lib/cache.c",
+            "arch/nios2/lib/libgcc.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+# --- SH ---
+
+uboot_cc_library(
+    name = "arch_sh_lib",
+    srcs = select({
+        ":arch_sh": [
+            "arch/sh/lib/board.c",
+            "arch/sh/lib/bootm.c",
+            "arch/sh/lib/time.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+# --- Xtensa ---
+
+uboot_cc_library(
+    name = "arch_xtensa_cpu",
+    srcs = select({
+        ":arch_xtensa": [
+            "arch/xtensa/cpu/cpu.c",
+            "arch/xtensa/cpu/exceptions.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+uboot_cc_library(
+    name = "arch_xtensa_lib",
+    srcs = select({
+        ":arch_xtensa": [
+            "arch/xtensa/lib/bootm.c",
+            "arch/xtensa/lib/cache.c",
+            "arch/xtensa/lib/misc.S",
+            "arch/xtensa/lib/relocate.c",
+            "arch/xtensa/lib/time.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+# --- ARC ---
+
+uboot_cc_library(
+    name = "arch_arc_lib",
+    srcs = select({
+        ":arch_arc": [
+            "arch/arc/lib/bootm.c",
+            "arch/arc/lib/cache.c",
+            "arch/arc/lib/cpu.c",
+            "arch/arc/lib/init_helpers.c",
+            "arch/arc/lib/interrupts.c",
+            "arch/arc/lib/ints_low.S",
+            "arch/arc/lib/relocate.c",
+            "arch/arc/lib/reset.c",
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+# --- ARM mach-* directories ---
+# Each machine directory is gated on its CONFIG_ARCH_* flag.
+# These provide SoC-specific initialization, clock, and board support code.
+
+[
+    uboot_cc_library(
+        name = "mach_" + mach + "_lib",
+        srcs = select({
+            ":mach_" + mach: glob(
+                [
+                    "arch/arm/mach-" + mach + "/**/*.c",
+                    "arch/arm/mach-" + mach + "/**/*.S",
+                ],
+                allow_empty = True,
+                exclude = ["arch/arm/mach-" + mach + "/**/*_test*.c"],
+            ),
+            "//conditions:default": [],
+        }),
+        includes = select({
+            ":mach_" + mach: ["arch/arm/mach-" + mach + "/include"],
+            "//conditions:default": [],
+        }),
+        textual_hdrs = select({
+            ":mach_" + mach: glob(
+                ["arch/arm/mach-" + mach + "/**/*.h"],
+                allow_empty = True,
+            ),
+            "//conditions:default": [],
+        }),
+    )
+    for mach in [v for v in _ARM_MACHINES.values()]
+]
+
+# --- asm/arch include path ---
+# U-Boot code uses #include <asm/arch/header.h>. The native build creates
+# a symlink: arch/arm/include/asm/arch -> arch-$(SOC) or mach-$(SOC)/include/mach.
+# In Bazel we replicate this by generating a directory of copies.
+# Machines with mach-*/include/mach/ use that; others use arch/arm/include/asm/arch-*.
+
+# --- asm/arch header remapping ---
+# U-Boot code uses #include <asm/arch/foo.h>. The native build creates
+# a symlink from asm/arch to either mach-$(SOC)/include/mach/ or
+# arch/arm/include/asm/arch-$(SOC)/. We replicate this with
+# strip_include_prefix + include_prefix on per-SOC cc_library targets.
+
+# Machines with mach-*/include/mach/ headers
+_MACH_INCLUDE_MACHINES = [
+    "at91",
+    "bcm283x",
+    "bcmstb",
+    "davinci",
+    "exynos",
+    "ipq40xx",
+    "k3",
+    "keystone",
+    "kirkwood",
+    "mvebu",
+    "nexell",
+    "orion5x",
+    "renesas",
+    "s5pc1xx",
+    "snapdragon",
+    "socfpga",
+    "stm32mp",
+    "versal",
+    "versal2",
+    "versal-net",
+    "zynq",
+    "zynqmp",
+    "zynqmp-r5",
+]
+
+[
+    cc_library(
+        name = "asm_arch_mach_" + mach,
+        hdrs = glob(
+            ["arch/arm/mach-" + mach + "/include/mach/*.h"],
+            allow_empty = True,
+        ),
+        include_prefix = "asm/arch",
+        strip_include_prefix = "arch/arm/mach-" + mach + "/include/mach",
+    )
+    for mach in _MACH_INCLUDE_MACHINES
+]
+
+# SOCs with arch/arm/include/asm/arch-$(SOC)/ headers
+_ARM_ARCH_SOCS = [
+    "adi",
+    "am33xx",
+    "apple",
+    "armada8k",
+    "armv7",
+    "aspeed",
+    "bcm281xx",
+    "bcmns3",
+    "fsl-layerscape",
+    "hi3660",
+    "hi3798cv200",
+    "hi6220",
+    "imx",
+    "imx8",
+    "imx8m",
+    "imx8ulp",
+    "imx9",
+    "imxrt",
+    "lpc32xx",
+    "ls102xa",
+    "mediatek",
+    "meson",
+    "mvebu",
+    "mx27",
+    "mx5",
+    "mx6",
+    "mx7",
+    "mx7ulp",
+    "mxs",
+    "npcm7xx",
+    "npcm8xx",
+    "octeontx",
+    "octeontx2",
+    "omap3",
+    "omap5",
+    "orion5x",
+    "owl",
+    "px30",
+    "qemu-sbsa",
+    "rk3036",
+    "rk3066",
+    "rk3128",
+    "rk3188",
+    "rk322x",
+    "rk3288",
+    "rk3308",
+    "rk3328",
+    "rk3368",
+    "rk3399",
+    "rk3568",
+    "rk3588",
+    "rockchip",
+    "rv1108",
+    "rv1126",
+    "stih410",
+    "stm32",
+    "stm32f4",
+    "stm32f7",
+    "stm32h7",
+    "sunxi",
+    "tegra",
+    "tegra114",
+    "tegra124",
+    "tegra186",
+    "tegra20",
+    "tegra210",
+    "tegra30",
+    "vf610",
+]
+
+[
+    cc_library(
+        name = "asm_arch_soc_" + soc,
+        hdrs = glob(
+            ["arch/arm/include/asm/arch-" + soc + "/*.h"],
+            allow_empty = True,
+        ),
+        include_prefix = "asm/arch",
+        strip_include_prefix = "arch/arm/include/asm/arch-" + soc,
+    )
+    for soc in _ARM_ARCH_SOCS
+]
+
+[
+    config_setting(
+        name = "soc_" + soc,
+        flag_values = {"@u-boot_kconfig//:CONFIG_SYS_SOC": soc},
+    )
+    for soc in _ARM_ARCH_SOCS
+]
+
+cc_library(
+    name = "asm_arch_headers",
+    deps = select(
+        {":mach_" + mach: [":asm_arch_mach_" + mach] for mach in _MACH_INCLUDE_MACHINES} |
+        {":soc_" + soc: [":asm_arch_soc_" + soc] for soc in _ARM_ARCH_SOCS} |
+        {"//conditions:default": []},
+    ),
+)
+
+# --- drivers/video subdirectories ---
+# These are SoC-specific and stubbed out — they compile only for their respective boards.
+
+[
+    uboot_cc_library(name = "drivers_video_" + v)
+    for v in ["sunxi", "rockchip", "tegra", "imx"]
+]
+
+uboot_cc_library(
+    name = "drivers_video_bridge",
+    srcs = glob(["drivers/video/bridge/*.c"]),
+)
+
+# TrueType fonts embedded as binary data in .rodata sections
+_TTF_FONTS = {
+    "ankacoder_c75_r": "CONFIG_CONSOLE_TRUETYPE_ANKACODER",
+    "cantoraone_regular": "CONFIG_CONSOLE_TRUETYPE_CANTORAONE",
+    "nimbus_sans_l_regular": "CONFIG_CONSOLE_TRUETYPE_NIMBUS",
+    "rufscript010": "CONFIG_CONSOLE_TRUETYPE_RUFSCRIPT",
+}
+
+[
+    embed_binary_data(
+        name = "font_" + name + "_S",
+        src = "drivers/video/fonts/" + name + ".ttf",
+        out = "drivers/video/fonts/" + name + ".S",
+        symbol = "ttf_" + name,
+    )
+    for name in _TTF_FONTS.keys()
+]
+
+# Font embedding is architecture-specific (.incbin in .S files).
+# Skip for now — fonts are only needed when CONFIG_CONSOLE_TRUETYPE is enabled.
+# TODO: implement proper font embedding via objcopy --input binary
+
+# --- drivers/mtd subdirectories ---
+
+uboot_cc_library(
+    name = "drivers_mtd_nand_raw",
+    srcs =
+        kconfig_select(
+            "CONFIG_NAND_OMAP_GPMC",
+            [
+                "drivers/mtd/nand/raw/omap_gpmc.c",
+                "drivers/mtd/nand/raw/omap_elm.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_NAND_DENALI",
+            ["drivers/mtd/nand/raw/denali.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_NAND_DENALI_DT",
+            ["drivers/mtd/nand/raw/denali_dt.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_NAND_MXS",
+            ["drivers/mtd/nand/raw/mxs_nand.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_NAND_SANDBOX",
+            ["drivers/mtd/nand/raw/sand_nand.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_NAND_SUNXI",
+            ["drivers/mtd/nand/raw/sunxi_nand.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_NAND_ZYNQ",
+            ["drivers/mtd/nand/raw/zynq_nand.c"],
+        ),
+    textual_hdrs = glob(["drivers/mtd/nand/raw/**/*.h"]),
+)
+
+uboot_cc_library(
+    name = "drivers_mtd_nand_spi",
+    srcs = glob(
+        ["drivers/mtd/nand/spi/*.c"],
+        exclude = [
+            "drivers/mtd/nand/spi/macronix.c",
+            "drivers/mtd/nand/spi/xtx.c",
+        ],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_mtd_ubi",
+    srcs = [
+        "drivers/mtd/ubi/attach.c",
+        "drivers/mtd/ubi/build.c",
+        "drivers/mtd/ubi/crc32.c",
+        "drivers/mtd/ubi/debug.c",
+        "drivers/mtd/ubi/eba.c",
+        "drivers/mtd/ubi/io.c",
+        "drivers/mtd/ubi/kapi.c",
+        "drivers/mtd/ubi/misc.c",
+        "drivers/mtd/ubi/upd.c",
+        "drivers/mtd/ubi/vmt.c",
+        "drivers/mtd/ubi/vtbl.c",
+        "drivers/mtd/ubi/wl.c",
+    ] + kconfig_select(
+        "CONFIG_MTD_UBI_FASTMAP",
+        ["drivers/mtd/ubi/fastmap.c"],
+    ),
+)
+
+uboot_cc_library(
+    name = "drivers_mtd_onenand",
+    srcs = glob(
+        ["drivers/mtd/onenand/*.c"],
+        exclude = [
+            "drivers/mtd/onenand/onenand_spl.c",
+            "drivers/mtd/onenand/onenand_uboot.c",
+            "drivers/mtd/onenand/samsung.c",
+        ],
+    ),
+)
+
+# --- Board code ---
+# The native build compiles only board/$(VENDOR)/$(BOARD)/. Since
+# CONFIG_SYS_VENDOR is a string flag with ~200 possible values, we
+# cannot enumerate all of them in select(). Instead, board code is
+# included via glob and the linker resolves only the symbols actually
+# referenced. For sandbox, we scope precisely to avoid conflicts.
+# For embedded boards, the kconfig transition from with_kconfig_overrides
+# ensures only one board's symbols are referenced.
+
+uboot_cc_library(
+    name = "board_all",
+    srcs = select({
+        ":arch_sandbox": glob(["board/sandbox/*.c"]),
+        "//conditions:default": glob(
+            ["board/**/*.c"],
+            allow_empty = True,
+        ),
+    }),
+    textual_hdrs = glob(
+        ["board/**/*.h"],
+        allow_empty = True,
+    ),
+)
+
+# --- drivers/ddr/ ---
+
+uboot_cc_library(
+    name = "drivers_ddr_fsl",
+    srcs =
+        kconfig_select(
+            "CONFIG_SYS_FSL_DDR3",
+            [
+                "drivers/ddr/fsl/main.c",
+                "drivers/ddr/fsl/util.c",
+                "drivers/ddr/fsl/ctrl_regs.c",
+                "drivers/ddr/fsl/options.c",
+                "drivers/ddr/fsl/lc_common_dimm_params.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_SYS_FSL_DDR4",
+            [
+                "drivers/ddr/fsl/main.c",
+                "drivers/ddr/fsl/util.c",
+                "drivers/ddr/fsl/ctrl_regs.c",
+                "drivers/ddr/fsl/options.c",
+                "drivers/ddr/fsl/lc_common_dimm_params.c",
+            ],
+        ) +
+        kconfig_select(
+            "CONFIG_SYS_FSL_MMDC",
+            ["drivers/ddr/fsl/fsl_mmdc.c"],
+        ),
+)
+
+# SoC-specific DDR drivers — stubbed out, compile only for their respective boards.
+[
+    uboot_cc_library(name = "drivers_ddr_" + v)
+    for v in ["imx", "altera", "marvell"]
+]
+
+uboot_cc_library(
+    name = "drivers_ddr_microchip",
+)
+
+# --- drivers/crypto/ ---
+
+uboot_cc_library(
+    name = "drivers_crypto",
+    srcs =
+        kconfig_select(
+            "CONFIG_EXYNOS_ACE_SHA",
+            ["drivers/crypto/ace_sha.c"],
+        ),
+    textual_hdrs = glob(["drivers/crypto/*.h"]),
+)
+
+uboot_cc_library(
+    name = "drivers_crypto_hash",
+    srcs =
+        kconfig_select(
+            "CONFIG_DM_HASH",
+            ["drivers/crypto/hash/hash-uclass.c"],
+        ) +
+        kconfig_select(
+            "CONFIG_HASH_SOFTWARE",
+            ["drivers/crypto/hash/hash_sw.c"],
+        ),
+)
+
+uboot_cc_library(
+    name = "drivers_crypto_rsa_mod_exp",
+    srcs = glob(["drivers/crypto/rsa_mod_exp/*.c"]),
+)
+
+uboot_cc_library(
+    name = "drivers_crypto_fsl",
+)
+
+uboot_cc_library(
+    name = "drivers_crypto_aspeed",
+)
+
+uboot_cc_library(
+    name = "drivers_crypto_nuvoton",
+    srcs = glob(["drivers/crypto/nuvoton/*.c"]),
+)
+
+# --- net/lwip/ ---
+
+uboot_cc_library(
+    name = "net_lwip",
+    srcs = kconfig_select(
+        "CONFIG_NET_LWIP",
+        glob(["net/lwip/*.c"]),
+    ),
+)
+
+# --- Linker script preprocessing ---
+
+preprocess_linker_script(
+    name = "preprocess_lds",
+    src = select({
+        ":arch_arc": "arch/arc/cpu/u-boot.lds",
+        ":arch_arm": "arch/arm/cpu/u-boot.lds",
+        ":arch_m68k": "arch/m68k/cpu/u-boot.lds",
+        ":arch_microblaze": "arch/microblaze/cpu/u-boot.lds",
+        ":arch_mips": "arch/mips/cpu/u-boot.lds",
+        ":arch_nios2": "arch/nios2/cpu/u-boot.lds",
+        ":arch_powerpc": "arch/powerpc/cpu/mpc83xx/u-boot.lds",
+        ":arch_riscv": "arch/riscv/cpu/u-boot.lds",
+        ":arch_sandbox": "arch/sandbox/cpu/u-boot.lds",
+        ":arch_sh": "arch/sh/cpu/u-boot.lds",
+        ":arch_x86": "arch/x86/cpu/u-boot.lds",
+        ":arch_xtensa": "arch/xtensa/cpu/u-boot.lds",
+    }),
+    out = "u-boot.lds.preprocessed",
+    hdrs = glob(["include/**/*.h"]) + glob([
+        "arch/*/include/**/*.h",
+    ]) + [
+        "include/config.h",
+        ":autoconf_h",
+    ],
+    copts = [
+        "-include",
+        "include/linux/kconfig.h",
+    ],
+    deps = [
+        ":asm_arch_headers",
+        ":generated_headers_base",
+        ":kconfig_headers",
+    ],
+    includes = [
+        "include",
+        "arch/arm/include",
+        "arch/sandbox/include",
+        "arch/x86/include",
+        "arch/riscv/include",
+        "arch/mips/include",
+        "arch/powerpc/include",
+    ],
+)
+
+# --- Binary post-processing ---
+
+objcopy_binary(
+    name = "u-boot-bin",
+    src = ":u-boot",
+    out = "u-boot.bin",
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+)
+
+# ======================================================================
+# Entry point
+# ======================================================================
+
+cc_library(
+    name = "start",
+    srcs = select({
+        ":arch_arc": ["arch/arc/lib/start.S"],
+        ":arch_microblaze": ["arch/microblaze/cpu/start.S"],
+        ":arch_mips": ["arch/mips/cpu/start.S"],
+        ":arch_nios2": ["arch/nios2/cpu/start.S"],
+        ":arch_powerpc": ["arch/powerpc/cpu/mpc83xx/start.S"],
+        ":arch_riscv": ["arch/riscv/cpu/start.S"],
+        ":arch_sandbox": [
+            "arch/sandbox/cpu/start.c",
+        ],
+        ":arch_x86": ["arch/x86/cpu/start64.S"],
+        ":arch_xtensa": ["arch/xtensa/cpu/start.S"],
+        ":cpu_arm1136": ["arch/arm/cpu/arm1136/start.S"],
+        ":cpu_arm1176": ["arch/arm/cpu/arm1176/start.S"],
+        ":cpu_arm720t": ["arch/arm/cpu/arm720t/start.S"],
+        ":cpu_arm920t": ["arch/arm/cpu/arm920t/start.S"],
+        ":cpu_arm926ejs": ["arch/arm/cpu/arm926ejs/start.S"],
+        ":cpu_armv7": ["arch/arm/cpu/armv7/start.S"],
+        ":cpu_armv7m": ["arch/arm/cpu/armv7m/start.S"],
+        ":cpu_armv8": ["arch/arm/cpu/armv8/start.S"],
+        "//conditions:default": [],
+    }),
+    copts = uboot_copts(),
+    includes = uboot_includes(),
+    local_defines = uboot_defines(),
+    deps = [":generated_headers"],
+    alwayslink = True,
+    features = ["-supports_dynamic_linker"],
+)
+
+# ======================================================================
+# u-boot binary and test
+# ======================================================================
+
+_UBOOT_DEPS = [
+    ":api",
+    ":arch_arc_lib",
+    ":arch_arm_cpu_armv7",
+    ":arch_arm_cpu_armv8",
+    ":arch_arm_lib",
+    ":arch_m68k_lib",
+    ":arch_microblaze_cpu",
+    ":arch_microblaze_lib",
+    ":arch_mips_cpu",
+    ":arch_mips_lib",
+    ":arch_nios2_cpu",
+    ":arch_nios2_lib",
+    ":arch_powerpc_lib",
+    ":arch_riscv_cpu",
+    ":arch_riscv_lib",
+    ":arch_sandbox_cpu",
+    ":arch_sandbox_cpu_os",
+    ":arch_sandbox_lib",
+    ":arch_sh_lib",
+    ":arch_x86_cpu",
+    ":arch_x86_lib",
+    ":arch_xtensa_cpu",
+    ":arch_xtensa_lib",
+    ":asm_arch_headers",
+    ":board_all",
+] + [":mach_" + mach + "_lib" for mach in _ARM_MACHINES.values()] + [
+    ":boot",
+    ":cmd",
+    ":cmd_arm",
+    ":cmd_broadcom",
+    ":cmd_meson",
+    ":cmd_mvebu",
+    ":cmd_riscv",
+    ":cmd_sandbox",
+    ":cmd_ti",
+    ":cmd_x86",
+    ":common",
+    ":common_init",
+    ":disk",
+    ":drivers_adc",
+    ":drivers_ata",
+    ":drivers_axi",
+    ":drivers_block",
+    ":drivers_bootcount",
+    ":drivers_bus",
+    ":drivers_button",
+    ":drivers_cache",
+    ":drivers_clk",
+] + [":drivers_clk_" + v for v in [
+    "adi",
+    "analogbits",
+    "imx",
+    "tegra",
+    "ti",
+]] + [
+    ":drivers_clk_" + v
+    for v, _ in [
+        ("altera", ""),
+        ("aspeed", ""),
+        ("at91", ""),
+        ("exynos", ""),
+        ("intel", ""),
+        ("mediatek", ""),
+        ("meson", ""),
+        ("microchip", ""),
+        ("mtmips", ""),
+        ("mvebu", ""),
+        ("nuvoton", ""),
+        ("owl", ""),
+        ("qcom", ""),
+        ("renesas", ""),
+        ("rockchip", ""),
+        ("sifive", ""),
+        ("sophgo", ""),
+        ("starfive", ""),
+        ("stm32", ""),
+        ("sunxi", ""),
+        ("uniphier", ""),
+    ]
+] + [
+    ":drivers_core",
+    ":drivers_cpu",
+    ":drivers_crypto",
+    ":drivers_crypto_aspeed",
+    ":drivers_crypto_fsl",
+    ":drivers_crypto_hash",
+    ":drivers_crypto_rsa_mod_exp",
+    ":drivers_ddr_altera",
+    ":drivers_ddr_fsl",
+    ":drivers_ddr_imx",
+    ":drivers_ddr_marvell",
+    ":drivers_ddr_microchip",
+    ":drivers_dfu",
+    ":drivers_dma",
+    ":drivers_extcon",
+    ":drivers_fastboot",
+    ":drivers_firmware",
+    ":drivers_fpga",
+    ":drivers_fuzz",
+    ":drivers_fwu_mdata",
+    ":drivers_gpio",
+    ":drivers_hwspinlock",
+    ":drivers_i2c",
+    ":drivers_i3c",
+    ":drivers_input",
+    ":drivers_iommu",
+    ":drivers_led",
+    ":drivers_mailbox",
+    ":drivers_memory",
+    ":drivers_mfd",
+    ":drivers_misc",
+    ":drivers_mmc",
+    ":drivers_mtd",
+    ":drivers_mtd_nand_raw",
+    ":drivers_mtd_nand_spi",
+    ":drivers_mtd_onenand",
+    ":drivers_mtd_spi",
+    ":drivers_mtd_ubi",
+    ":drivers_mux",
+    ":drivers_net",
+    ":drivers_net_phy",
+    ":drivers_nvme",
+    ":drivers_pci",
+    ":drivers_pci_endpoint",
+    ":drivers_phy",
+    ":drivers_pinctrl",
+] + [":drivers_pinctrl_" + v for v in [
+    "nxp",
+    "broadcom",
+]] + [
+    ":drivers_pinctrl_" + v
+    for v, _ in [
+        ("aspeed", ""),
+        ("ath79", ""),
+        ("exynos", ""),
+        ("intel", ""),
+        ("mediatek", ""),
+        ("meson", ""),
+        ("mscc", ""),
+        ("mtmips", ""),
+        ("mvebu", ""),
+        ("nexell", ""),
+        ("nuvoton", ""),
+        ("qcom", ""),
+        ("renesas", ""),
+        ("rockchip", ""),
+        ("starfive", ""),
+        ("sunxi", ""),
+        ("tegra", ""),
+        ("uniphier", ""),
+    ]
+] + [
+    ":drivers_power",
+    ":drivers_power_pmic",
+    ":drivers_power_regulator",
+    ":drivers_pwm",
+    ":drivers_qe",
+    ":drivers_ram",
+    ":drivers_reboot_mode",
+    ":drivers_remoteproc",
+    ":drivers_reset",
+    ":drivers_rng",
+    ":drivers_rtc",
+    ":drivers_scsi",
+    ":drivers_serial",
+    ":drivers_sm",
+    ":drivers_smem",
+    ":drivers_soc",
+    ":drivers_sound",
+    ":drivers_spi",
+    ":drivers_spmi",
+    ":drivers_sysinfo",
+    ":drivers_sysreset",
+    ":drivers_tee",
+    ":drivers_thermal",
+    ":drivers_timer",
+    ":drivers_tpm",
+    ":drivers_ufs",
+    ":drivers_usb_cdns3",
+    ":drivers_usb_common",
+    ":drivers_usb_dwc3",
+    ":drivers_usb_emul",
+    ":drivers_usb_eth",
+    ":drivers_usb_gadget",
+    ":drivers_usb_gadget_udc",
+    ":drivers_usb_host",
+    ":drivers_usb_musb_new",
+    ":drivers_usb_phy",
+    ":drivers_usb_ulpi",
+    ":drivers_video",
+    ":drivers_video_bridge",
+    ":drivers_video_imx",
+    ":drivers_video_rockchip",
+    ":drivers_video_sunxi",
+    ":drivers_video_tegra",
+    ":drivers_virtio",
+    ":drivers_w1",
+    ":drivers_w1_eeprom",
+    ":drivers_watchdog",
+    ":drivers_xen",
+    ":env",
+    ":fs",
+    ":fs_btrfs",
+    ":fs_cbfs",
+    ":fs_cramfs",
+    ":fs_erofs",
+    ":fs_exfat",
+    ":fs_ext4",
+    ":fs_fat",
+    ":fs_jffs2",
+    ":fs_sandbox",
+    ":fs_squashfs",
+    ":fs_ubifs",
+    ":fs_zfs",
+    ":generated_headers",
+    ":lib",
+    ":lib_acpi",
+    ":lib_aes",
+    ":lib_at91",
+    ":lib_blake2",
+    ":lib_bzip2",
+    ":lib_crypt",
+    ":lib_crypto",
+    ":lib_dhry",
+    ":lib_ecdsa",
+    ":lib_efi_client",
+    ":lib_efi_driver",
+    ":lib_efi_loader",
+    ":lib_efi_selftest",
+    ":lib_fwu_updates",
+    ":lib_libavb",
+    ":lib_libfdt",
+    ":lib_lwip",
+    ":lib_lz4",
+    ":lib_lzma",
+    ":lib_lzo",
+    ":lib_mbedtls",
+    ":lib_optee",
+    ":lib_rsa",
+    ":lib_zlib",
+    ":lib_zstd",
+    ":net",
+    ":net_lwip",
+    ":post",
+    ":start",
+    ":test_boot",
+    ":test_cmd",
+    ":test_common",
+    ":test_dm",
+    ":test_env",
+    ":test_fdt_overlay",
+    ":test_framework",
+    ":test_fuzz",
+    ":test_hush",
+    ":test_lib",
+    ":test_log",
+    ":test_optee",
+]
+
+_UBOOT_LINKOPTS = select({
+    ":arch_sandbox": [
+        "-Wl,--gc-sections",
+        "-Wl,--allow-multiple-definition",
+        "-Wl,--defsym=__efi_runtime_start=0",
+        "-Wl,--defsym=__efi_runtime_stop=0",
+        "-Wl,--defsym=__efi_runtime_rel_start=0",
+        "-Wl,--defsym=__efi_runtime_rel_stop=0",
+        "-Wl,--defsym=__efi_capsule_sig_begin=0",
+        "-Wl,--defsym=__efi_capsule_sig_end=0",
+        "-Wl,--unresolved-symbols=ignore-in-object-files",
+    ],
+    "//conditions:default": [
+        "-nostdlib",
+        "-Wl,-Bstatic",
+        "-T",
+        "$(location u-boot.lds.preprocessed)",
+        "-Wl,--gc-sections",
+        "-Wl,--whole-archive",
+    ],
+})
+
+_UBOOT_ADDITIONAL_LINKER_INPUTS = select({
+    ":arch_sandbox": [],
+    "//conditions:default": ["u-boot.lds.preprocessed"],
+})
+
+# A board configuration is required to build u-boot.
+# Use with_kconfig_overrides() from a kconfig.overrides() repo.
+cc_binary(
+    name = "u-boot",
+    additional_linker_inputs = _UBOOT_ADDITIONAL_LINKER_INPUTS,
+    copts = uboot_copts(),
+    includes = uboot_includes(),
+    linkopts = _UBOOT_LINKOPTS,
+    local_defines = uboot_defines(),
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+    deps = _UBOOT_DEPS,
+)
+
+cc_test(
+    name = "u-boot-test",
+    additional_linker_inputs = _UBOOT_ADDITIONAL_LINKER_INPUTS,
+    args = [
+        "-c",
+        "ut all",
+    ],
+    copts = uboot_copts(),
+    includes = uboot_includes(),
+    linkstatic = True,
+    linkopts = _UBOOT_LINKOPTS,
+    local_defines = uboot_defines(),
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+    deps = _UBOOT_DEPS,
+)

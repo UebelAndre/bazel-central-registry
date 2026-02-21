@@ -1,0 +1,18 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("//bazel:cc_version.bzl", "clang_version", "gcc_version")
+
+cc_binary(
+    name = "extract_asm_offsets",
+    srcs = ["extract_asm_offsets.cc"],
+    visibility = ["//visibility:private"],
+)
+
+gcc_version(
+    name = "gcc_version",
+    visibility = ["//visibility:public"],
+)
+
+clang_version(
+    name = "clang_version",
+    visibility = ["//visibility:public"],
+)

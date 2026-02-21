@@ -1,0 +1,121 @@
+"""u-boot integration tests"""
+
+module(
+    name = "u-boot-test",
+    version = "0.0.0",
+)
+
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "u-boot")
+bazel_dep(name = "rules_kconfig", version = "0.3.0")
+bazel_dep(name = "rules_python", version = "1.9.0")
+
+local_path_override(
+    module_name = "u-boot",
+    path = "..",
+)
+
+python = use_extension(
+    "@rules_python//python/extensions:python.bzl",
+    "python",
+)
+python.toolchain(python_version = "3.12")
+use_repo(python, "python_3_12_host")
+
+kconfig = use_extension(
+    "@rules_kconfig//kconfig:extensions.bzl",
+    "kconfig",
+)
+
+kconfig.overrides(
+    name = "u-boot_kconfig_sandbox",
+    config = "@u-boot//:configs/sandbox_defconfig",
+    interpreter = "@python_3_12_host//:python",
+    kconfig = "@u-boot_kconfig//:u-boot_kconfig",
+)
+
+kconfig.overrides(
+    name = "u-boot_kconfig_rpi4",
+    config = "@u-boot//:configs/rpi_4_defconfig",
+    interpreter = "@python_3_12_host//:python",
+    kconfig = "@u-boot_kconfig//:u-boot_kconfig",
+)
+
+kconfig.overrides(
+    name = "u-boot_kconfig_am335x",
+    config = "@u-boot//:configs/am335x_evm_defconfig",
+    interpreter = "@python_3_12_host//:python",
+    kconfig = "@u-boot_kconfig//:u-boot_kconfig",
+)
+
+kconfig.overrides(
+    name = "u-boot_kconfig_stm32mp15",
+    config = "@u-boot//:configs/stm32mp15_defconfig",
+    interpreter = "@python_3_12_host//:python",
+    kconfig = "@u-boot_kconfig//:u-boot_kconfig",
+)
+
+kconfig.overrides(
+    name = "u-boot_kconfig_imx8mm",
+    config = "@u-boot//:configs/imx8mm_evk_defconfig",
+    interpreter = "@python_3_12_host//:python",
+    kconfig = "@u-boot_kconfig//:u-boot_kconfig",
+)
+
+kconfig.overrides(
+    name = "u-boot_kconfig_rk3588",
+    config = "@u-boot//:configs/evb-rk3588_defconfig",
+    interpreter = "@python_3_12_host//:python",
+    kconfig = "@u-boot_kconfig//:u-boot_kconfig",
+)
+
+kconfig.overrides(
+    name = "u-boot_kconfig_qemu_riscv64",
+    config = "@u-boot//:configs/qemu-riscv64_smode_defconfig",
+    interpreter = "@python_3_12_host//:python",
+    kconfig = "@u-boot_kconfig//:u-boot_kconfig",
+)
+
+kconfig.overrides(
+    name = "u-boot_kconfig_qemu_x86_64",
+    config = "@u-boot//:configs/qemu-x86_64_defconfig",
+    interpreter = "@python_3_12_host//:python",
+    kconfig = "@u-boot_kconfig//:u-boot_kconfig",
+)
+
+kconfig.overrides(
+    name = "u-boot_kconfig_sifive",
+    config = "@u-boot//:configs/sifive_unmatched_defconfig",
+    interpreter = "@python_3_12_host//:python",
+    kconfig = "@u-boot_kconfig//:u-boot_kconfig",
+)
+
+kconfig.overrides(
+    name = "u-boot_kconfig_qemu_arm64",
+    config = "@u-boot//:configs/qemu_arm64_defconfig",
+    interpreter = "@python_3_12_host//:python",
+    kconfig = "@u-boot_kconfig//:u-boot_kconfig",
+)
+
+kconfig.overrides(
+    name = "u-boot_kconfig_efi_x86_payload64",
+    config = "@u-boot//:configs/efi-x86_payload64_defconfig",
+    interpreter = "@python_3_12_host//:python",
+    kconfig = "@u-boot_kconfig//:u-boot_kconfig",
+)
+
+use_repo(
+    kconfig,
+    "u-boot_kconfig",
+    "u-boot_kconfig_am335x",
+    "u-boot_kconfig_imx8mm",
+    "u-boot_kconfig_efi_x86_payload64",
+    "u-boot_kconfig_qemu_arm64",
+    "u-boot_kconfig_qemu_riscv64",
+    "u-boot_kconfig_qemu_x86_64",
+    "u-boot_kconfig_rk3588",
+    "u-boot_kconfig_rpi4",
+    "u-boot_kconfig_sandbox",
+    "u-boot_kconfig_sifive",
+    "u-boot_kconfig_stm32mp15",
+)

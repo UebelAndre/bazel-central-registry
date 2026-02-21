@@ -1,0 +1,41 @@
+matrix:
+  platform:
+    - debian13
+    - debian13_arm64
+    - ubuntu2004
+    - ubuntu2004_arm64
+    - macos_arm64
+  bazel: ["8.x", "9.x"]
+tasks:
+  verify_targets:
+    name: Verify build targets
+    platform: ${{ platform }}
+    bazel: ${{ bazel }}
+    build_targets:
+      - "@u-boot//..."
+
+bcr_test_module:
+  module_path: bazel_test
+  matrix:
+    platform:
+      - debian13
+      - debian13_arm64
+      - ubuntu2004
+      - ubuntu2004_arm64
+      - macos_arm64
+    bazel: ["8.x", "9.x"]
+  tasks:
+    build_boards:
+      name: Build board targets
+      platform: ${{ platform }}
+      bazel: ${{ bazel }}
+      build_targets:
+        - "//..."
+    test_sandbox:
+      name: Run sandbox unit tests
+      platform: ${{ platform }}
+      bazel: ${{ bazel }}
+      test_targets:
+        - "//..."
+      test_flags:
+        - "--@u-boot_kconfig//:CONFIG_UNIT_TEST=true"

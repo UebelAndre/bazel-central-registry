@@ -1,0 +1,61 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("//bazel:cc_version.bzl", "clang_version", "gcc_version", "kconfig_bool", "kconfig_value")
+load("//bazel:defs.bzl", "UBOOT_VERSION")
+
+cc_test(
+    name = "version_test",
+    srcs = ["version_test.cc"],
+    data = ["//:MODULE.bazel"],
+    env = {
+        "MODULE_BAZEL": "$(rlocationpath //:MODULE.bazel)",
+        "UBOOT_VERSION": UBOOT_VERSION,
+    },
+    deps = ["@rules_cc//cc/runfiles"],
+)
+
+cc_binary(
+    name = "extract_asm_offsets",
+    srcs = ["extract_asm_offsets.cc"],
+    visibility = ["//visibility:private"],
+)
+
+gcc_version(
+    name = "gcc_version",
+    visibility = ["//visibility:public"],
+)
+
+clang_version(
+    name = "clang_version",
+    visibility = ["//visibility:public"],
+)
+
+kconfig_bool(
+    name = "host_32bit",
+    value = select({
+        "@platforms//cpu:armv7": True,
+        "@platforms//cpu:x86_32": True,
+        "//conditions:default": False,
+    }),
+    visibility = ["//visibility:public"],
+)
+
+kconfig_bool(
+    name = "host_64bit",
+    value = select({
+        "@platforms//cpu:armv7": False,
+        "@platforms//cpu:x86_32": False,
+        "//conditions:default": True,
+    }),
+    visibility = ["//visibility:public"],
+)
+
+kconfig_value(
+    name = "sandbox_bits_per_long",
+    value = select({
+        "@platforms//cpu:armv7": 32,
+        "@platforms//cpu:x86_32": 32,
+        "//conditions:default": 64,
+    }),
+    visibility = ["//visibility:public"],
+)

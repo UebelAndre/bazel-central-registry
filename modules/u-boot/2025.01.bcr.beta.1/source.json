@@ -1,0 +1,19 @@
+{
+    "url": "https://ftp.denx.de/pub/u-boot/u-boot-2025.01.tar.bz2",
+    "integrity": "sha256-ze99UHyT8bvZ8BXqm8IfoHQmhIFAVQGUWrxvhU1baG8=",
+    "strip_prefix": "u-boot-2025.01",
+    "overlay": {
+        ".bazelignore": "sha256-Ir/dWX5OrCJCiG4pJ1P71VjJ8fZbcNQXRI6F7zCJGa4=",
+        "BUILD.bazel": "sha256-W0tgBURJVirPzBLMZSID02iGY+i/JxVVtC5v5AzvijE=",
+        "MODULE.bazel": "sha256-sMWC7/g31l2jA35u8blkCAoFwISFpOH5v0lloSGoPVI=",
+        "bazel/BUILD.bazel": "sha256-x+coQ13NIWUbAfd9m8WY5s/26lq73SHPk5Utbh0At4A=",
+        "bazel/asm_offsets.bzl": "sha256-INUdC1bN4jG4LlIvAKQnU6H72/MFzmG91LoXkuBkd+Y=",
+        "bazel/binary_rules.bzl": "sha256-cIxgF4QlSjtIIZk/T/hRFzuXWBw/OouB9A61PcHLI0g=",
+        "bazel/cc_version.bzl": "sha256-QDjSe9piAEIFog+ERQ6/bVKvNNvkyU5htj8x26C6Pq0=",
+        "bazel/defs.bzl": "sha256-4vmXFl6TwQ3C9voP+0i6KpQCS1ClGnw7SjApf6+qkDs=",
+        "bazel/extract_asm_offsets.cc": "sha256-9cPaGwYPgtgwiovscAKw/lORJPrIyteoAZ+mJ85UwNQ=",
+        "bazel/version_test.cc": "sha256-yTZIKCTLSoFUyRf/ZswINH3bd1Wj1gNRVFbhXou8KMg=",
+        "bazel_test/BUILD.bazel": "sha256-tFcL2K2Wihu9QeNUBze/iw6g2ZtWm592jhwvtQ9d3pg=",
+        "bazel_test/MODULE.bazel": "sha256-PLBLKHUytrhm1xxM4tjf45YVCpyzBX9j6Zz7KqThjx8="
+    }
+}

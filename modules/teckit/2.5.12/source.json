@@ -3,6 +3,6 @@
     "strip_prefix": "teckit-2.5.12",
     "integrity": "sha256-fvEOW7eepkN7ega0qSsxTT8UIpJ1gojvzlDhKkVbbn8=",
     "overlay": {
-        "BUILD.bazel": "sha256-N0BpW0hd0jFNqQdI+kiU5SHAkTWaDEpziIqFowiPcGA="
+        "BUILD.bazel": "sha256-1s7JRcU9GzxlatgaQ/zzqRN02euxX2SQSPviuPUa05w="
     }
 }

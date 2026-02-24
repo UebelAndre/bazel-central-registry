@@ -332,6 +332,8 @@ FORMATS_ARM = [("linux32", "S")]
         outs = ["{}-{}.{}".format(stem, fmt, ext)],
         cmd = "$(PERL) $(execpath {}) {} $@".format(src, fmt),
         cmd_bat = "$(PERL) $(execpath {}) {} $@".format(src, fmt),
+        # TODO: This is insufficient for cross-compilation. Please
+        # pull in https://github.com/bazel-contrib/rules_perl/pull/100
         toolchains = ["@rules_perl//perl:current_toolchain"],
     )
     for src, stem in PERLASM_X86_64
@@ -348,6 +350,8 @@ FORMATS_ARM = [("linux32", "S")]
         outs = ["{}-{}.{}".format(stem, fmt, ext)],
         cmd = "$(PERL) $(execpath {}) {} $@".format(src, fmt),
         cmd_bat = "$(PERL) $(execpath {}) {} $@".format(src, fmt),
+        # TODO: This is insufficient for cross-compilation. Please
+        # pull in https://github.com/bazel-contrib/rules_perl/pull/100
         toolchains = ["@rules_perl//perl:current_toolchain"],
     )
     for src, stem in PERLASM_AARCH64
@@ -364,6 +368,8 @@ FORMATS_ARM = [("linux32", "S")]
         outs = ["{}-{}.{}".format(stem, fmt, ext)],
         cmd = "$(PERL) $(execpath {}) {} -fPIC $@".format(src, fmt),
         cmd_bat = "$(PERL) $(execpath {}) {} -fPIC $@".format(src, fmt),
+        # TODO: This is insufficient for cross-compilation. Please
+        # pull in https://github.com/bazel-contrib/rules_perl/pull/100
         toolchains = ["@rules_perl//perl:current_toolchain"],
     )
     for src, stem in PERLASM_X86
@@ -380,6 +386,8 @@ FORMATS_ARM = [("linux32", "S")]
         outs = ["{}-{}.{}".format(stem, fmt, ext)],
         cmd = "$(PERL) $(execpath {}) {} $@".format(src, fmt),
         cmd_bat = "$(PERL) $(execpath {}) {} $@".format(src, fmt),
+        # TODO: This is insufficient for cross-compilation. Please
+        # pull in https://github.com/bazel-contrib/rules_perl/pull/100
         toolchains = ["@rules_perl//perl:current_toolchain"],
     )
     for src, stem in PERLASM_ARM

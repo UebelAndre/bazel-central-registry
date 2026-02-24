@@ -12,61 +12,28 @@ load("@rules_cc_autoconf//autoconf:package_info.bzl", "package_info")
 package_info(
     name = "teckit_package_info",
     package_name = "teckit",
-    package_bugreport = "wstech@sil.org",
     package_version = "2.5.12",
+    package_bugreport = "wstech@sil.org",
 )
 
 autoconf(
     name = "configure_ac",
     checks = [
         # AC_HEADER_STDC (line 55) + AC_CHECK_HEADERS (line 56)
-        checks.AC_CHECK_HEADER(
-            "dlfcn.h",
-            define = "HAVE_DLFCN_H",
-        ),
-        checks.AC_CHECK_HEADER(
-            "inttypes.h",
-            define = "HAVE_INTTYPES_H",
-        ),
-        checks.AC_CHECK_HEADER(
-            "stdint.h",
-            define = "HAVE_STDINT_H",
-        ),
-        checks.AC_CHECK_HEADER(
-            "stdio.h",
-            define = "HAVE_STDIO_H",
-        ),
-        checks.AC_CHECK_HEADER(
-            "stdlib.h",
-            define = "HAVE_STDLIB_H",
-        ),
-        checks.AC_CHECK_HEADER(
-            "string.h",
-            define = "HAVE_STRING_H",
-        ),
-        checks.AC_CHECK_HEADER(
-            "strings.h",
-            define = "HAVE_STRINGS_H",
-        ),
-        checks.AC_CHECK_HEADER(
-            "sys/stat.h",
-            define = "HAVE_SYS_STAT_H",
-        ),
-        checks.AC_CHECK_HEADER(
-            "sys/types.h",
-            define = "HAVE_SYS_TYPES_H",
-        ),
-        checks.AC_CHECK_HEADER(
-            "unistd.h",
-            define = "HAVE_UNISTD_H",
-        ),
+        checks.AC_CHECK_HEADER("dlfcn.h", define = "HAVE_DLFCN_H"),
+        checks.AC_CHECK_HEADER("inttypes.h", define = "HAVE_INTTYPES_H"),
+        checks.AC_CHECK_HEADER("stdint.h", define = "HAVE_STDINT_H"),
+        checks.AC_CHECK_HEADER("stdio.h", define = "HAVE_STDIO_H"),
+        checks.AC_CHECK_HEADER("stdlib.h", define = "HAVE_STDLIB_H"),
+        checks.AC_CHECK_HEADER("string.h", define = "HAVE_STRING_H"),
+        checks.AC_CHECK_HEADER("strings.h", define = "HAVE_STRINGS_H"),
+        checks.AC_CHECK_HEADER("sys/stat.h", define = "HAVE_SYS_STAT_H"),
+        checks.AC_CHECK_HEADER("sys/types.h", define = "HAVE_SYS_TYPES_H"),
+        checks.AC_CHECK_HEADER("unistd.h", define = "HAVE_UNISTD_H"),
 
         # zlib is always available via Bazel dependency
         checks.AC_DEFINE("HAVE_LIBZ", "1"),
-        checks.AC_CHECK_HEADER(
-            "zlib.h",
-            define = "HAVE_ZLIB_H",
-        ),
+        checks.AC_CHECK_HEADER("zlib.h", define = "HAVE_ZLIB_H"),
 
         # expat is always available via Bazel dependency
         checks.AC_DEFINE("HAVE_LIBEXPAT", "1"),
@@ -79,10 +46,10 @@ autoconf(
 
         # AC_C_BIGENDIAN (line 59) - not cross-compile safe, use select()
     ] + select({
-        "@platforms//cpu:ppc": [
+        "@platforms//cpu:s390x": [
             checks.AC_DEFINE("WORDS_BIGENDIAN", "1"),
         ],
-        "@platforms//cpu:s390x": [
+        "@platforms//cpu:ppc": [
             checks.AC_DEFINE("WORDS_BIGENDIAN", "1"),
         ],
         "//conditions:default": [],
@@ -106,6 +73,7 @@ LOCAL_DEFINES = ["HAVE_CONFIG_H"]
 COPTS = select({
     "@rules_cc//cc/compiler:clang": ["-w"],
     "@rules_cc//cc/compiler:gcc": ["-w"],
+    "@rules_cc//cc/compiler:msvc-cl": ["/w"],
     "//conditions:default": [],
 })
 
@@ -207,7 +175,10 @@ cc_binary(
         "SFconv/sfReader.h",
         "SFconv/ushort_chartraits.h",
     ],
-    copts = ["-std=c++11"] + COPTS,
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": [],
+        "//conditions:default": ["-std=c++11"],
+    }) + COPTS,
     local_defines = LOCAL_DEFINES + [
         "HAVE_LIBEXPAT=1",
     ],

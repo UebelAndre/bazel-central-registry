@@ -3,6 +3,6 @@
     "strip_prefix": "bzip2-1.0.8",
     "url": "https://mirror.bazel.build/sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz",
     "overlay": {
-        "BUILD.bazel": "sha256-nloABpV8QYNrnEyopAZdRflmftVft4Q+bz1FLchIYd8="
+        "BUILD.bazel": "sha256-PcguvcUTx+KWZZ+fqMEYggm1zdBfroQQpqLG0iyKJ2E="
     }
 }

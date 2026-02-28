@@ -13,14 +13,9 @@ config_setting(
     flag_values = {":no_stdio": "True"},
 )
 
-COMMON_DEFINES = [
-    "_FILE_OFFSET_BITS=64",
-]
-
 cc_binary(
     name = "bzip2",
     srcs = ["bzip2.c"],
-    defines = COMMON_DEFINES,
     visibility = ["//visibility:public"],
     deps = [
         ":bz2",
@@ -42,11 +37,14 @@ cc_library(
     hdrs = [
         "bzlib.h",
     ],
-    defines = COMMON_DEFINES + select({
+    defines = [
+        "_FILE_OFFSET_BITS=64",
+    ],
+    includes = ["."],
+    local_defines = select({
         ":no_stdio_requested": ["BZ_NO_STDIO"],
         "//conditions:default": [],
     }),
-    includes = ["."],
     visibility = ["//visibility:public"],
 )
 

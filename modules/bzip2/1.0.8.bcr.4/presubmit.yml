@@ -19,6 +19,6 @@ tasks:
     platform: ${{ platform }}
     bazel: ${{ bazel }}
     build_flags:
-      - "@bzip2//:no_stdio=True"
+      - "--@bzip2//:no_stdio=True"
     build_targets:
       - "@bzip2//..."

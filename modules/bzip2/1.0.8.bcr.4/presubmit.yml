@@ -15,7 +15,7 @@ tasks:
     build_targets:
       - "@bzip2//..."
   verify_targets_no_stdio:
-    name: Verify build targets
+    name: Verify build targets (BZ_NO_STDIO)
     platform: ${{ platform }}
     bazel: ${{ bazel }}
     build_flags:

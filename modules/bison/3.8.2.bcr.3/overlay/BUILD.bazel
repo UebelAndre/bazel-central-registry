@@ -592,6 +592,11 @@ int main(void) { __fseterr(stdin); return 0; }
             checks.AC_SUBST("COMPILE_STRERROR_OVERRIDE", "0"),
             checks.AC_SUBST("COMPILE_MBRTOWC", "0"),
             checks.AC_SUBST("COMPILE_SPAWN_FACTION_ADDCHDIR", "1"),
+            # Override string_h toolchain defaults for POSIX functions missing
+            # on Windows.  Without these the generated string.h skips their
+            # declarations, causing implicit-int errors on MSVC.
+            checks.AC_SUBST("HAVE_STPCPY", 0),
+            checks.AC_SUBST("HAVE_STPNCPY", 0),
         ],
         "//conditions:default": [
             checks.AC_SUBST("COMPILE_GETOPT", "1"),

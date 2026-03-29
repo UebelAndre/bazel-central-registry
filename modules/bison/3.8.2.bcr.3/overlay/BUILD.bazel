@@ -984,7 +984,7 @@ BISON_LINKOPTS = select({
 # Bison binary
 cc_binary(
     name = "bin/bison",
-    srcs = BISON_SRC_SRCS + ["src/main.c"],
+    srcs = BISON_SRC_SRCS + ["src/main.c"] + BISON_HDRS_SRCS,
     copts = BISON_COPTS,
     data = [":bison_data"],
     includes = ["src"],
@@ -994,7 +994,6 @@ cc_binary(
         "//conditions:default": [],
     }),
     local_defines = LOCAL_DEFINES,
-    textual_hdrs = BISON_HDRS_SRCS,
     visibility = ["//visibility:public"],
     deps = [
         ":bison_bazel_runfiles",

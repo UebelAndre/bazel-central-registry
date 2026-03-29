@@ -8,13 +8,14 @@
     "integrity": "sha256-m7oCFMz38QecXVkhAEUie89hlRmEDr+oDNOEnP9aW/I=",
     "strip_prefix": "bison-3.8.2",
     "overlay": {
-        "BUILD.bazel": "sha256-kGHxtzKnevDqRib+3GHkxsQ0czKiZJP8FOuu0YWo3ic=",
-        "MODULE.bazel": "sha256-b5QwXoXPKXFl/EjfBcdX0kayryl0InzwqRuYPyi2WVM=",
+        "BUILD.bazel": "sha256-c0KKZ7fE0zMypeAz0QuH13AsAIdCymcAEjQTDRQBJhI=",
+        "MODULE.bazel": "sha256-cDgwHuRX8mF3lcN834gVv0d1NCtJnqFpbGphaoqLVH8=",
         "src/bazel_runfiles.cc": "sha256-o9CfqzA/wMokkZFTDDU9ZWDeV0XybwRv3huEW408Hjk="
     },
     "patch_strip": 1,
     "patches": {
         "bison_runfiles.patch": "sha256-3rP891KElfcHLA8zd/xDCY9G4F8DTyu7ZFsEfb3DzKg=",
-        "stdint_comment.patch": "sha256-n926sBnJqraJqNJ4h5d/Bf8NqecmbNeBbb+a3SrGBuM="
+        "stdint_comment.patch": "sha256-n926sBnJqraJqNJ4h5d/Bf8NqecmbNeBbb+a3SrGBuM=",
+        "string_free_decl.patch": "sha256-PO4WMYbPfGnlYN/ZyEvBPrj/BbrglcP0OdNhqtphMWA="
     }
 }

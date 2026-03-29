@@ -36,6 +36,7 @@ GENERATED_SRCS = {
     "lib/stdio.h": "lib/stdio.in.h",
     "lib/stdlib.h": "lib/stdlib.in.h",
     "lib/string.h": "lib/string.in.h",
+    "lib/strings.h": "lib/strings.in.h",
     "lib/sys/ioctl.h": "lib/sys_ioctl.in.h",
     "lib/sys/resource.h": "lib/sys_resource.in.h",
     "lib/sys/stat.h": "lib/sys_stat.in.h",

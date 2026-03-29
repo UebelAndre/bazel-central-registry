@@ -741,12 +741,41 @@ autoconf_srcs(
     deps = [":configure_ac"],
 )
 
-# Gnulib library
+# Shared headers for lib/ targets (mirrors autotools AM_CPPFLAGS = -I./lib)
+cc_library(
+    name = "headers",
+    hdrs = ["lib/config.h"] + [
+        ":{}".format(hdr)
+        for hdr in GENERATED_SRCS.keys()
+    ] + glob(
+        include = ["lib/**/*.h"],
+        exclude = GENERATED_SRCS.keys() + [
+            "lib/config.h",
+            "lib/configmake.h",
+        ],
+    ) + [
+        "src/scan-code.c",
+        "src/scan-gram.c",
+        "src/scan-skel.c",
+        ":configmake_h_src",
+    ],
+    includes = ["lib"],
+    textual_hdrs = [
+        "lib/timevar.def",
+        "lib/printf-frexp.c",
+    ],
+)
+
+alias(
+    name = "libbison",
+    actual = ":lib/bison",
+)
+
 # Unconditional sources are always compiled on all platforms.
 # Conditional sources are gated by autoconf_srcs targets based on actual
 # check results (REPLACE_*, HAVE_*), matching native autoconf behavior.
 cc_library(
-    name = "gnulib",
+    name = "lib/bison",
     srcs = [
         # === Unconditional sources (from lib_libbison_a_SOURCES in gnulib.mk) ===
         "lib/allocator.c",
@@ -860,50 +889,55 @@ cc_library(
         "lib/stat-time.c",
     ] + [
         ":gnulib_conditional_srcs",
-    ],
-    hdrs = ["lib/config.h"] + [
-        ":{}".format(hdr)
-        for hdr in GENERATED_SRCS.keys()
-    ] + glob(
-        include = ["lib/**/*.h"],
-        exclude = GENERATED_SRCS.keys() + [
-            "lib/config.h",
-            "lib/configmake.h",
+    ] + select({
+        "@platforms//os:windows": [
+            # POSIX function replacements (missing on Windows)
+            "lib/ffsl.c",
+            "lib/fsync.c",
+            "lib/getdtablesize.c",
+            "lib/getrusage.c",
+            "lib/gettimeofday.c",
+            "lib/pipe.c",
+            "lib/sigaction.c",
+            "lib/sigprocmask.c",
+            "lib/stpcpy.c",
+            "lib/stpncpy.c",
+            "lib/strndup.c",
+            "lib/waitpid.c",
+            "lib/wcwidth.c",
+            # Windows-specific gnulib support
+            "lib/msvc-inval.c",
+            "lib/msvc-nothrow.c",
+            "lib/stat-w32.c",
+            "lib/windows-mutex.c",
+            "lib/windows-once.c",
+            "lib/windows-recmutex.c",
+            "lib/windows-rwlock.c",
+            "lib/windows-spawn.c",
+            "lib/windows-tls.c",
         ],
-    ) + [
-        "src/scan-code.c",
-        "src/scan-gram.c",
-        "src/scan-skel.c",
-        ":configmake_h_src",
-    ],
+        "//conditions:default": [],
+    }),
     copts = BISON_COPTS,
-    includes = ["lib"],
     local_defines = LOCAL_DEFINES + [
         "DEFAULT_TEXT_DOMAIN=\\\"bison-gnulib\\\"",
     ],
-    textual_hdrs = [
-        "lib/timevar.def",
-        "lib/printf-frexp.c",
-    ],
-)
-
-# Liby library (separate from gnulib)
-cc_library(
-    name = "y",
-    srcs = [
-        "lib/main.c",
-        "lib/yyerror.c",
-    ],
-    includes = ["lib"],
-    local_defines = LOCAL_DEFINES,
-    deps = [
-        ":gnulib",
-    ],
+    deps = [":headers"],
 )
 
 alias(
     name = "liby",
-    actual = ":y",
+    actual = ":lib/y",
+)
+
+cc_library(
+    name = "lib/y",
+    srcs = [
+        "lib/main.c",
+        "lib/yyerror.c",
+    ],
+    implementation_deps = [":headers"],
+    local_defines = LOCAL_DEFINES,
 )
 
 BISON_SRC_SRCS = glob(
@@ -930,34 +964,6 @@ cc_library(
     deps = ["@rules_cc//cc/runfiles"],
 )
 
-# Main bison library
-cc_library(
-    name = "lib/bison",
-    srcs = BISON_SRC_SRCS,
-    hdrs = [
-        "src/AnnotationList.h",
-        "src/InadequacyList.h",
-        "src/complain.h",
-    ],
-    copts = BISON_COPTS,
-    includes = [
-        "lib",
-        "src",
-    ],
-    local_defines = LOCAL_DEFINES,
-    textual_hdrs = BISON_HDRS_SRCS,
-    deps = [
-        ":bison_bazel_runfiles",
-        ":gnulib",
-        ":liby",
-    ],
-)
-
-alias(
-    name = "libbison",
-    actual = ":lib/bison",
-)
-
 # Runfiles for bison binary
 filegroup(
     name = "bison_data",
@@ -978,16 +984,21 @@ BISON_LINKOPTS = select({
 # Bison binary
 cc_binary(
     name = "bin/bison",
-    srcs = ["src/main.c"],
+    srcs = BISON_SRC_SRCS + ["src/main.c"],
+    copts = BISON_COPTS,
     data = [":bison_data"],
-    defines = LOCAL_DEFINES,
+    includes = ["src"],
     linkopts = BISON_LINKOPTS + select({
         "@platforms//os:linux": ["-lpthread"],
         "@platforms//os:macos": ["-liconv"],
         "//conditions:default": [],
     }),
+    local_defines = LOCAL_DEFINES,
+    textual_hdrs = BISON_HDRS_SRCS,
     visibility = ["//visibility:public"],
     deps = [
+        ":bison_bazel_runfiles",
+        ":headers",
         ":libbison",
         ":liby",
     ],

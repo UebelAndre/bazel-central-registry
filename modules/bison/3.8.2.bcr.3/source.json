@@ -9,7 +9,7 @@
     "strip_prefix": "bison-3.8.2",
     "overlay": {
         "BUILD.bazel": "sha256-kGHxtzKnevDqRib+3GHkxsQ0czKiZJP8FOuu0YWo3ic=",
-        "MODULE.bazel": "sha256-K5ZTF1PrkVvhkndvJ9JE2NEM0IR2/oVHEahG5gdrCXI=",
+        "MODULE.bazel": "sha256-b5QwXoXPKXFl/EjfBcdX0kayryl0InzwqRuYPyi2WVM=",
         "src/bazel_runfiles.cc": "sha256-o9CfqzA/wMokkZFTDDU9ZWDeV0XybwRv3huEW408Hjk="
     },
     "patch_strip": 1,

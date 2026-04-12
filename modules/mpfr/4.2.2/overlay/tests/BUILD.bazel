@@ -1,0 +1,48 @@
+"""Tests for mpfr, using upstream test harness."""
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+# libfrtests: test support library (tests/Makefile.am)
+cc_library(
+    name = "frtests",
+    testonly = True,
+    srcs = [
+        "cmp_str.c",
+        "memory.c",
+        "random2.c",
+        "rnd_mode.c",
+        "tests.c",
+    ],
+    hdrs = [
+        "mpf_compat.h",
+        "mpfr-test.h",
+    ],
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": ["/W"],
+        "//conditions:default": ["-w"],
+    }),
+    local_defines = ["HAVE_CONFIG_H"],
+    deps = ["//:mpfr"],
+)
+
+# Representative upstream tests
+[cc_test(
+    name = test,
+    srcs = [test + ".c"],
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": ["/W"],
+        "//conditions:default": ["-w"],
+    }),
+    env = {"MPFR_QUIET": "1"},
+    local_defines = ["HAVE_CONFIG_H"],
+    deps = [":frtests"],
+) for test in [
+    "tinits",
+    "tsgn",
+    "tabs",
+    "tset",
+    "tadd",
+    "tmul",
+    "tcheck",
+]]

@@ -1,0 +1,18 @@
+{
+    "homepage": "http://ftp.porcupine.org/pub/security/index.html",
+    "maintainers": [
+        {
+            "email": "26427366+UebelAndre@users.noreply.github.com",
+            "github": "UebelAndre",
+            "github_user_id": 26427366,
+            "name": "UebelAndre"
+        }
+    ],
+    "repository": [
+        "http://ftp.porcupine.org/pub/security/"
+    ],
+    "versions": [
+        "7.6"
+    ],
+    "yanked_versions": {}
+}

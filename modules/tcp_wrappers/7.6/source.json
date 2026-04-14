@@ -1,0 +1,9 @@
+{
+    "url": "http://ftp.porcupine.org/pub/security/tcp_wrappers_7.6-ipv6.4.tar.gz",
+    "strip_prefix": "tcp_wrappers_7.6-ipv6.4",
+    "integrity": "sha256-A4pYC2SXurUWo+DcpZ36L+jPPAFRvvRdV1cvt1bCpkw=",
+    "overlay": {
+        "BUILD.bazel": "sha256-epGc2muTHrkF1FlhF0DNeVbiMJjwhAbd/va/RKZCmL8=",
+        "MODULE.bazel": "sha256-OwGCNfsiBcK9ALkeiPifVprbM6gIzXwfRfCp+2URnNc="
+    }
+}

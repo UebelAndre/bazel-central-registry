@@ -1,0 +1,250 @@
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc_autoconf//autoconf:autoconf.bzl", "autoconf")
+load("@rules_cc_autoconf//autoconf:autoconf_srcs.bzl", "autoconf_srcs")
+load("@rules_cc_autoconf//autoconf:checks.bzl", "checks", "macros")
+
+# --------------------------------------------------------------------------- #
+# Build configuration flags
+# --------------------------------------------------------------------------- #
+
+bool_flag(
+    name = "with_ipv6",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "ipv6_enabled",
+    flag_values = {":with_ipv6": "True"},
+)
+
+# --------------------------------------------------------------------------- #
+# Autoconf checks (replaces Makefile platform detection)
+# --------------------------------------------------------------------------- #
+
+autoconf(
+    name = "autoconf",
+    checks = macros.AC_CHECK_FUNCS([
+        "setenv",
+        "strerror",
+        "vsyslog",
+    ]) + [
+        checks.AC_CHECK_TYPE(
+            "struct sockaddr_in6",
+            define = "HAVE_SOCKADDR_IN6",
+            # buildifier: leave-alone
+            includes = [
+                "#include <sys/types.h>",
+                "#include <sys/socket.h>",
+                "#include <netinet/in.h>",
+            ],
+        ),
+    ],
+)
+
+# --------------------------------------------------------------------------- #
+# Conditional sources
+# --------------------------------------------------------------------------- #
+
+# setenv.c is needed on systems without setenv() in libc
+autoconf_srcs(
+    name = "aux_srcs",
+    srcs = {
+        "setenv.c": "!HAVE_SETENV",
+    },
+    naming = "per_target",
+    deps = [":autoconf"],
+)
+
+# --------------------------------------------------------------------------- #
+# Configuration defines (mirrors Makefile CFLAGS)
+# --------------------------------------------------------------------------- #
+
+# These match the linux/freebsd Makefile targets with sensible defaults.
+_CONFIG_DEFINES = [
+    "FACILITY=LOG_MAIL",
+    "SEVERITY=LOG_INFO",
+    "HOSTS_ACCESS",
+    "PARANOID",
+    "ALWAYS_HOSTNAME",
+    'REAL_DAEMON_DIR=\\"/usr/sbin\\"',
+    "DAEMON_UMASK=022",
+    "RFC931_TIMEOUT=10",
+    'HOSTS_DENY=\\"/etc/hosts.deny\\"',
+    'HOSTS_ALLOW=\\"/etc/hosts.allow\\"',
+    "PROCESS_OPTIONS",
+]
+
+_PLATFORM_DEFINES = select({
+    "@platforms//os:linux": [
+        "USE_STRERROR",
+        "HAVE_STRERROR",
+        "HAVE_WEAKSYMS",
+        "USE_GETHOSTBYNAME2",
+    ],
+    "@platforms//os:macos": [
+        "USE_STRERROR",
+        "HAVE_STRERROR",
+    ],
+    "//conditions:default": [],
+})
+
+# --------------------------------------------------------------------------- #
+# libwrap (the main library)
+# --------------------------------------------------------------------------- #
+
+alias(
+    name = "libwrap",
+    actual = ":wrap",
+)
+
+alias(
+    name = "tcp_wrappers",
+    actual = ":wrap",
+)
+
+cc_library(
+    name = "wrap",
+    srcs = [
+        "clean_exit.c",
+        "diag.c",
+        "eval.c",
+        "fix_options.c",
+        "fromhost.c",
+        "hosts_access.c",
+        "hosts_ctl.c",
+        "misc.c",
+        "myvsyslog.c",
+        "options.c",
+        "percent_m.c",
+        "percent_x.c",
+        "refuse.c",
+        "rfc931.c",
+        "shell_cmd.c",
+        "socket.c",
+        "tli.c",
+        "update.c",
+        "workarounds.c",
+        ":aux_srcs",
+    ] + [
+        # Private headers
+        "inetcf.h",
+        "mystdarg.h",
+        "patchlevel.h",
+        "scaffold.h",
+    ],
+    hdrs = ["tcpd.h"],
+    copts = [
+        "-Duchar_t=unsigned\\ char",
+        "-fcommon",
+        "-fno-strict-aliasing",
+        "-Wno-implicit-function-declaration",
+        "-Wno-implicit-int",
+        "-Wno-return-type",
+    ],
+    # `defines` (not local_defines) so HAVE_IPV6 propagates to dependents
+    # that include tcpd.h (which uses #ifdef HAVE_IPV6 for struct layout).
+    defines = select({
+        ":ipv6_enabled": ["HAVE_IPV6"],
+        "//conditions:default": [],
+    }),
+    includes = ["."],
+    local_defines = _CONFIG_DEFINES + _PLATFORM_DEFINES + select({
+        ":ipv6_enabled": ["HAVE_IPV6"],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+)
+
+# --------------------------------------------------------------------------- #
+# Binaries
+# --------------------------------------------------------------------------- #
+
+_BINARY_COPTS = [
+    "-Duchar_t=unsigned\\ char",
+    "-fcommon",
+    "-fno-strict-aliasing",
+    "-Wno-implicit-function-declaration",
+    "-Wno-implicit-int",
+    "-Wno-return-type",
+]
+
+# tcpd: the main wrapper daemon
+cc_binary(
+    name = "tcpd",
+    srcs = ["tcpd.c"],
+    copts = _BINARY_COPTS,
+    local_defines = _CONFIG_DEFINES + _PLATFORM_DEFINES + select({
+        ":ipv6_enabled": ["HAVE_IPV6"],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [":wrap"],
+)
+
+# safe_finger: secure finger client wrapper
+cc_binary(
+    name = "safe_finger",
+    srcs = ["safe_finger.c"],
+    copts = _BINARY_COPTS,
+    local_defines = _CONFIG_DEFINES + _PLATFORM_DEFINES + select({
+        ":ipv6_enabled": ["HAVE_IPV6"],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [":wrap"],
+)
+
+# try-from: test host/user lookups
+cc_binary(
+    name = "try-from",
+    srcs = [
+        "fakelog.c",
+        "try-from.c",
+    ],
+    copts = _BINARY_COPTS,
+    local_defines = _CONFIG_DEFINES + _PLATFORM_DEFINES + select({
+        ":ipv6_enabled": ["HAVE_IPV6"],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [":wrap"],
+)
+
+# tcpdmatch: access control rule testing
+cc_binary(
+    name = "tcpdmatch",
+    srcs = [
+        "fakelog.c",
+        "inetcf.c",
+        "scaffold.c",
+        "tcpdmatch.c",
+    ],
+    copts = _BINARY_COPTS,
+    local_defines = _CONFIG_DEFINES + _PLATFORM_DEFINES + select({
+        ":ipv6_enabled": ["HAVE_IPV6"],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [":wrap"],
+)
+
+# tcpdchk: configuration file checker
+cc_binary(
+    name = "tcpdchk",
+    srcs = [
+        "fakelog.c",
+        "inetcf.c",
+        "scaffold.c",
+        "tcpdchk.c",
+    ],
+    copts = _BINARY_COPTS,
+    local_defines = _CONFIG_DEFINES + _PLATFORM_DEFINES + select({
+        ":ipv6_enabled": ["HAVE_IPV6"],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [":wrap"],
+)

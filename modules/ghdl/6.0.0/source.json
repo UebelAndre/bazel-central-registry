@@ -1,0 +1,14 @@
+{
+    "url": "https://github.com/ghdl/ghdl/archive/refs/tags/v6.0.0.tar.gz",
+    "strip_prefix": "ghdl-6.0.0",
+    "integrity": "sha256-LYT70LI4omko6JoCVidAcsa0CvGWmk9Me+V+w1FbxiI=",
+    "overlay": {
+        "BUILD.bazel": "sha256-s+6Wj9jMtdJX/AbhEuCC7gKMAVGHRR8LiOVVyGxxHJA=",
+        "MODULE.bazel": "sha256-veSAh4BEsEUxdJBu/Vedkw4Q/UMYd70PdiVJeF97PqU=",
+        "bazel/BUILD.bazel": "sha256-vsxuuVASfocN7ym5+wKk1ehr31TYwhLWxmY/aGpEq2Y=",
+        "bazel/ghdl_utils.bzl": "sha256-UVkQTFGSStr7PV8UOxCrKE33ej+MuD1dgajyZuRn8cY=",
+        "bazel/vhdl_std_gen.cc": "sha256-dl7Vx1Ck9NWPAVgVmbshp/JFFsa7FtS3jvQ/GuRjXDc=",
+        "bazel/vhdl_test_runner.cc": "sha256-WMM5mWnikQn+xZC9qIsNZ5tBh+HJapgAsWeCF2h93XI=",
+        "testsuite/BUILD.bazel": "sha256-etQ3SQQ5rqab8xscpJXs5R4aAu/IUAFeQf3gMX4Q2aY="
+    }
+}

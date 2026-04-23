@@ -1,0 +1,14 @@
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+
+cc_binary(
+    name = "vhdl_std_gen",
+    srcs = ["vhdl_std_gen.cc"],
+    visibility = ["//:__pkg__"],
+)
+
+cc_binary(
+    name = "vhdl_test_runner",
+    srcs = ["vhdl_test_runner.cc"],
+    visibility = ["//:__pkg__"],
+    deps = ["@rules_cc//cc/runfiles"],
+)

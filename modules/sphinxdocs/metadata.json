@@ -19,7 +19,9 @@
         "github:bazel-contrib/rules_python"
     ],
     "versions": [
-        "2.0.0-rc2"
+        "2.0.0-rc2",
+        "2.0.0-rc3",
+        "2.0.0-rc4"
     ],
     "yanked_versions": {}
 }

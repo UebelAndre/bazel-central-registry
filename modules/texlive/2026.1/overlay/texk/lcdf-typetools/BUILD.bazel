@@ -1,0 +1,14 @@
+load("//bazel:texlive.bzl", "texk_program")
+
+texk_program(
+    name = "lcdf-typetools",
+    srcs = glob([
+        "**/*.c",
+        "**/*.cc",
+    ]),
+    hdrs = glob([
+        "**/*.h",
+        "**/*.hh",
+    ]),
+    copts = ["-std=c++11"],
+)

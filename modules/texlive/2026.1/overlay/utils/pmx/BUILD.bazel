@@ -1,0 +1,50 @@
+"""pmx - preprocessor for MusiXTeX."""
+
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+cc_library(
+    name = "libf2c",
+    srcs = glob(
+        ["pmx-src/libf2c/*.c"],
+        exclude = [
+            "pmx-src/libf2c/uninit.c",
+            "pmx-src/libf2c/ftell64_.c",
+            "pmx-src/libf2c/pow_qq.c",
+            "pmx-src/libf2c/qbitbits.c",
+            "pmx-src/libf2c/qbitshft.c",
+            "pmx-src/libf2c/signbit.c",
+        ],
+    ),
+    hdrs = glob(["pmx-src/libf2c/*.h"]),
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": ["/w"],
+        "//conditions:default": ["-w"],
+    }),
+    strip_include_prefix = "pmx-src/libf2c",
+)
+
+cc_binary(
+    name = "pmxab",
+    srcs = ["pmx-src/pmxab.c"] + select({
+        "@platforms//os:windows": ["pmx-src/w32getc.c"],
+        "//conditions:default": [],
+    }),
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": ["/w"],
+        "//conditions:default": ["-w"],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [":libf2c"],
+)
+
+cc_binary(
+    name = "scor2prt",
+    srcs = ["pmx-src/scor2prt.c"],
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": ["/w"],
+        "//conditions:default": ["-w"],
+    }),
+    visibility = ["//visibility:public"],
+    deps = [":libf2c"],
+)

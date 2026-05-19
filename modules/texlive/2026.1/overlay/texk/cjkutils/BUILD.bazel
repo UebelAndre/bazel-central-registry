@@ -1,0 +1,15 @@
+load("//bazel:texlive.bzl", "texk_program")
+
+texk_program(name = "cef5conv")
+
+texk_program(name = "cefsconv")
+
+texk_program(name = "cefconv")
+
+texk_program(name = "extconv")
+
+texk_program(name = "hbf2gf")
+
+texk_program(name = "sjisconv")
+
+texk_program(name = "bg5conv")

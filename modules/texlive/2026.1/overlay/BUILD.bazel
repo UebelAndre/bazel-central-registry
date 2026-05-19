@@ -1,0 +1,235 @@
+"""TeX Live - a comprehensive TeX system."""
+
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
+load("@rules_cc_autoconf//autoconf:autoconf.bzl", "autoconf")
+load("@rules_cc_autoconf//autoconf:checks.bzl", "checks", "macros")
+load("@rules_cc_autoconf//autoconf:package_info.bzl", "package_info")
+
+# =============================================================================
+# Build configuration flags (wired into compilation)
+# =============================================================================
+
+# Controls whether TeX's --ipc option is compiled in.
+# Used in texk/web2c engine builds to define IPC.
+bool_flag(
+    name = "enable_ipc",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+# Controls SyncTeX support in TeX engines.
+bool_flag(
+    name = "enable_synctex",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+# When disabled, fmt/base dump files are architecture-dependent.
+# Defines NO_DUMP_SHARE when False.
+bool_flag(
+    name = "enable_dump_share",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+# Additional string appended to TeX version banners.
+string_flag(
+    name = "with_banner_add",
+    build_setting_default = "",
+    visibility = ["//visibility:public"],
+)
+
+# Editor command invoked from TeX's 'e' option.
+string_flag(
+    name = "with_editor",
+    build_setting_default = "vi +%d '%s'",
+    visibility = ["//visibility:public"],
+)
+
+# kpathsea compile-time defaults for auto-generating missing files.
+bool_flag(
+    name = "mktexfmt_default",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "mktexmf_default",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "mktexpk_default",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "mktextex_default",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "mktextfm_default",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+# =============================================================================
+# Config settings for select()
+# =============================================================================
+
+config_setting(
+    name = "ipc_enabled",
+    flag_values = {":enable_ipc": "True"},
+    visibility = ["//:__subpackages__"],
+)
+
+config_setting(
+    name = "synctex_enabled",
+    flag_values = {":enable_synctex": "True"},
+    visibility = ["//:__subpackages__"],
+)
+
+config_setting(
+    name = "dump_share_enabled",
+    flag_values = {":enable_dump_share": "True"},
+    visibility = ["//:__subpackages__"],
+)
+
+# =============================================================================
+# Package info
+# =============================================================================
+
+package_info(
+    name = "package",
+    package_name = "TeX Live",
+    aliases = {
+        "VERSION": "PACKAGE_VERSION",
+    },
+    module_bazel = "MODULE.bazel",
+    package_bugreport = "https://tug.org/texlive/",
+    strip_bcr_version = True,
+    visibility = ["//:__subpackages__"],
+)
+
+# =============================================================================
+# Autoconf configuration (shared by kpathsea, ptexenc, web2c)
+# =============================================================================
+
+autoconf(
+    name = "configure",
+    checks =
+        macros.AC_CHECK_HEADERS([
+            "assert.h",
+            "dirent.h",
+            "dlfcn.h",
+            "errno.h",
+            "float.h",
+            "inttypes.h",
+            "langinfo.h",
+            "limits.h",
+            "locale.h",
+            "memory.h",
+            "pwd.h",
+            "stdint.h",
+            "stdio.h",
+            "stdlib.h",
+            "string.h",
+            "strings.h",
+            "sys/dir.h",
+            "sys/ndir.h",
+            "sys/param.h",
+            "sys/stat.h",
+            "sys/time.h",
+            "sys/timeb.h",
+            "sys/types.h",
+            "sys/wait.h",
+            "time.h",
+            "unistd.h",
+            "wchar.h",
+        ]) + macros.AC_CHECK_FUNCS([
+            "access",
+            "atoi",
+            "fabs",
+            "fmax",
+            "ftime",
+            "getcwd",
+            "gettimeofday",
+            "labs",
+            "memcmp",
+            "memcpy",
+            "mkdtemp",
+            "mkstemp",
+            "mktemp",
+            "putenv",
+            "setlocale",
+            "strchr",
+            "strerror",
+            "strlcat",
+            "strlcpy",
+            "strndup",
+            "strrchr",
+        ]) + macros.AC_CHECK_DECLS([
+            "isascii",
+            "putenv",
+            "strndup",
+        ]) + [
+            checks.AC_CHECK_SIZEOF("int"),
+            checks.AC_CHECK_SIZEOF("long"),
+            checks.AC_CHECK_SIZEOF("void *"),
+            checks.AC_CHECK_SIZEOF("off_t"),
+            checks.AC_DEFINE(
+                "HAVE_UINTPTR_T",
+                value = "1",
+            ),
+            checks.AC_DEFINE(
+                "HAVE_FSEEKO",
+                value = "1",
+            ),
+            checks.AC_DEFINE(
+                "_GNU_SOURCE",
+                value = "1",
+            ),
+            checks.AC_DEFINE(
+                "STDC_HEADERS",
+                value = "1",
+            ),
+            checks.AC_DEFINE(
+                "MAKE_TEX_FMT_BY_DEFAULT",
+                value = "0",
+            ),
+            checks.AC_DEFINE(
+                "MAKE_TEX_MF_BY_DEFAULT",
+                value = "0",
+            ),
+            checks.AC_DEFINE(
+                "MAKE_TEX_PK_BY_DEFAULT",
+                value = "0",
+            ),
+            checks.AC_DEFINE(
+                "MAKE_TEX_TEX_BY_DEFAULT",
+                value = "0",
+            ),
+            checks.AC_DEFINE(
+                "MAKE_TEX_TFM_BY_DEFAULT",
+                value = "0",
+            ),
+            checks.AC_DEFINE(
+                "MAKE_OMEGA_OCP_BY_DEFAULT",
+                value = "0",
+            ),
+            checks.AC_DEFINE(
+                "MAKE_OMEGA_OFM_BY_DEFAULT",
+                value = "0",
+            ),
+            checks.AC_DEFINE(
+                "TL_VERSION",
+                value = '"TeX Live 2026"',
+            ),
+        ],
+    visibility = ["//:__subpackages__"],
+    deps = [":package"],
+)

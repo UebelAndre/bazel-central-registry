@@ -1,0 +1,22 @@
+"""m-tx - preprocessor for pmx (MusiXTeX preprocessor)."""
+
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+
+cc_binary(
+    name = "prepmx",
+    srcs = glob(
+        [
+            "mtx-src/*.c",
+            "mtx-src/*.h",
+        ],
+        exclude = ["mtx-src/libp2c/**"],
+    ) + [
+        "mtx-src/libp2c/p2c.h",
+    ],
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": ["/w"],
+        "//conditions:default": ["-w"],
+    }),
+    local_defines = ["NO_DECLARE_MALLOC"],
+    visibility = ["//visibility:public"],
+)

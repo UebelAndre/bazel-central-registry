@@ -1,0 +1,13 @@
+"""Helper tools for the TeX Live Bazel build."""
+
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+
+cc_binary(
+    name = "process_wrapper",
+    srcs = ["process_wrapper.cc"],
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": ["/std:c++17"],
+        "//conditions:default": ["-std=c++17"],
+    }),
+    visibility = ["//visibility:public"],
+)

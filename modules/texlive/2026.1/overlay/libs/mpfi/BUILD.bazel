@@ -1,0 +1,42 @@
+"""MPFI - Multiple Precision Floating-Point Interval library."""
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc_autoconf//autoconf:autoconf_hdr.bzl", "autoconf_hdr")
+
+autoconf_hdr(
+    name = "mpfi_config_h",
+    out = "mpfi_config.h",
+    template = "mpfi_config.h.in",
+    deps = ["//:configure"],
+)
+
+cc_library(
+    name = "mpfi_config",
+    hdrs = [":mpfi_config_h"],
+    includes = ["."],
+)
+
+cc_library(
+    name = "mpfi",
+    srcs = glob(
+        ["mpfi-src/src/*.c"],
+        exclude = ["mpfi-src/src/*test*"],
+    ),
+    hdrs = glob(["mpfi-src/src/*.h"]),
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": ["/w"],
+        "//conditions:default": ["-w"],
+    }),
+    local_defines = [
+        "HAVE_MPFR_Z_SUB",
+        "HAVE_MPFR_Z_DIV",
+        "HAVE_MPFR_Q_SUB",
+    ],
+    strip_include_prefix = "mpfi-src/src",
+    visibility = ["//visibility:public"],
+    deps = [
+        ":mpfi_config",
+        "@gmp",
+        "@mpfr",
+    ],
+)

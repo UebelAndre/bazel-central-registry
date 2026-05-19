@@ -1,0 +1,36 @@
+"""potrace - library for tracing bitmaps to vector graphics."""
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+cc_library(
+    name = "potrace",
+    srcs = [
+        "potrace-src/src/curve.c",
+        "potrace-src/src/decompose.c",
+        "potrace-src/src/potracelib.c",
+        "potrace-src/src/trace.c",
+    ],
+    hdrs = [
+        "potrace-src/src/auxiliary.h",
+        "potrace-src/src/bitmap.h",
+        "potrace-src/src/curve.h",
+        "potrace-src/src/decompose.h",
+        "potrace-src/src/lists.h",
+        "potrace-src/src/potracelib.h",
+        "potrace-src/src/progress.h",
+        "potrace-src/src/trace.h",
+    ],
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": ["/w"],
+        "//conditions:default": [
+            "-w",
+            "-include",
+            "stdint.h",
+        ],
+    }) + [
+        """-DVERSION='"1.16"'""",
+        """-DPACKAGE_VERSION='"1.16"'""",
+    ],
+    strip_include_prefix = "potrace-src/src",
+    visibility = ["//visibility:public"],
+)

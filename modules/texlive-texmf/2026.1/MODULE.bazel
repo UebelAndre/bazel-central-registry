@@ -1,0 +1,9 @@
+"""https://tug.org/texlive/"""
+
+module(
+    name = "texlive-texmf",
+    version = "2026.1",
+    bazel_compatibility = [">=7.2.1"],
+)
+
+bazel_dep(name = "tex-live", version = "2026.1")

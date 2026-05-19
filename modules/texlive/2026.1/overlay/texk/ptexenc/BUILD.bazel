@@ -1,0 +1,64 @@
+"""ptexenc - Japanese TeX encoding library."""
+
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc_autoconf//autoconf:autoconf_hdr.bzl", "autoconf_hdr")
+
+autoconf_hdr(
+    name = "c_auto_h",
+    out = "ptexenc/c-auto.h",
+    template = "c-auto.in",
+    deps = ["//:configure"],
+)
+
+cc_library(
+    name = "ptexenc",
+    srcs = [
+        "kanjicnv.c",
+        "ptexenc.c",
+        "unicode.c",
+        "unicode-jp.c",
+    ],
+    hdrs = [
+        "jisx0208.h",
+        "ptexenc/kanjicnv.h",
+        "ptexenc/ptexenc.h",
+        "ptexenc/unicode.h",
+        "ptexenc/unicode-jp.h",
+        "tex8benc.h",
+    ] + [":c_auto_h"],
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": ["/w"],
+        "//conditions:default": ["-w"],
+    }),
+    include_prefix = "ptexenc",
+    includes = ["."],
+    local_defines = [
+        "HAVE_CONFIG_H",
+        "KPATHSEA",
+        "PTEXENC",
+        "MAKE_PTENC_DLL",
+    ],
+    strip_include_prefix = ".",
+    visibility = ["//visibility:public"],
+    deps = ["//texk/kpathsea"],
+)
+
+cc_binary(
+    name = "ptekf",
+    srcs = ["ptekf.c"],
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": ["/w"],
+        "//conditions:default": ["-w"],
+    }) + ["-DTL_VERSION='\"TeX Live 2026\"'"],
+    local_defines = ["HAVE_CONFIG_H"],
+    visibility = ["//visibility:public"],
+    deps = [":ptexenc"],
+)
+
+genrule(
+    name = "ptekf_version",
+    outs = ["ptekf_version.txt"],
+    cmd = "$(execpath :ptekf) --version > $@",
+    tools = [":ptekf"],
+)

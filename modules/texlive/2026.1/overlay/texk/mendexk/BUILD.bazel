@@ -1,0 +1,6 @@
+load("//bazel:texlive.bzl", "texk_program")
+
+texk_program(
+    name = "mendexk",
+    deps = ["//texk/ptexenc"],
+)

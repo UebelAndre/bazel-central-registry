@@ -1,0 +1,13 @@
+"""ps2eps - produce Encapsulated PostScript from PostScript."""
+
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+
+cc_binary(
+    name = "bbox",
+    srcs = ["ps2eps-src/src/C/bbox.c"],
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": ["/w"],
+        "//conditions:default": ["-w"],
+    }),
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,11 @@
+load("//bazel:texlive.bzl", "texk_program")
+
+texk_program(
+    name = "xdvipsk",
+    deps = [
+        "@freetype",
+        "@libpng//:png",
+        "@lua//:liblua",
+        "@zlib",
+    ],
+)

@@ -1,0 +1,5 @@
+load("//bazel:texlive.bzl", "texk_program")
+
+texk_program(name = "dt2dv")
+
+texk_program(name = "dv2dt")

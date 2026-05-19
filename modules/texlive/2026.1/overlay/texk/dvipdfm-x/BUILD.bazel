@@ -1,0 +1,12 @@
+load("//bazel:texlive.bzl", "texk_program")
+
+texk_program(
+    name = "dvipdfm-x",
+    srcs = glob(["**/*.c"]),
+    hdrs = glob(["**/*.h"]),
+    deps = [
+        "@libpaper",
+        "@libpng//:png",
+        "@zlib",
+    ],
+)

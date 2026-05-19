@@ -1,0 +1,16 @@
+"""xml2pmx - convert MusicXML to PMX."""
+
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+
+cc_binary(
+    name = "xml2pmx",
+    srcs = glob([
+        "xml2pmx-src/*.c",
+        "xml2pmx-src/*.h",
+    ]),
+    copts = select({
+        "@rules_cc//cc/compiler:msvc-cl": ["/w"],
+        "//conditions:default": ["-w"],
+    }),
+    visibility = ["//visibility:public"],
+)

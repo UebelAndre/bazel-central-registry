@@ -1,0 +1,17 @@
+load("//bazel:texlive.bzl", "texk_program")
+
+texk_program(
+    name = "dvisvgm",
+    srcs = glob([
+        "**/*.c",
+        "**/*.cpp",
+    ]),
+    hdrs = glob([
+        "**/*.h",
+        "**/*.hpp",
+    ]),
+    deps = [
+        "@freetype",
+        "@zlib",
+    ],
+)

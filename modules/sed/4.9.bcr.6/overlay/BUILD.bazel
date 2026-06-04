@@ -1,0 +1,1037 @@
+"""GNU sed - https://www.gnu.org/software/sed/"""
+
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc_autoconf//autoconf:autoconf.bzl", "autoconf")
+load("@rules_cc_autoconf//autoconf:autoconf_hdr.bzl", "autoconf_hdr")
+load("@rules_cc_autoconf//autoconf:checks.bzl", "checks", "macros")
+load("@rules_cc_autoconf//autoconf:package_info.bzl", "package_info")
+
+VERSION = "4.9"
+
+# =============================================================================
+# User-configurable feature flags
+# =============================================================================
+
+# --disable-i18n (configure.ac line ~143): when disabled, ac_cv_func_wcscoll is
+# forced to no, which causes sed to skip the wide-character collation paths
+# used for internationalized regex matching.
+bool_flag(
+    name = "enable_i18n",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+# gl_DISABLE_THREADS (configure.ac line ~33): sed's stock configure unconditionally
+# disables gnulib's threadlib. Exposing this lets users opt into thread support if
+# their environment provides it.
+bool_flag(
+    name = "enable_threads",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "i18n_enabled",
+    flag_values = {":enable_i18n": "True"},
+)
+
+config_setting(
+    name = "i18n_disabled",
+    flag_values = {":enable_i18n": "False"},
+)
+
+config_setting(
+    name = "threads_enabled",
+    flag_values = {":enable_threads": "True"},
+)
+
+config_setting(
+    name = "threads_disabled",
+    flag_values = {":enable_threads": "False"},
+)
+
+# =============================================================================
+# Package information (mirrors AC_INIT in configure.ac)
+# =============================================================================
+
+package_info(
+    name = "sed_package_info",
+    package_name = "GNU sed",
+    aliases = {
+        "VERSION": "PACKAGE_VERSION",
+    },
+    module_bazel = "MODULE.bazel",
+    package_bugreport = "bug-sed@gnu.org",
+    package_url = "https://www.gnu.org/software/sed/",
+    strip_bcr_version = True,
+)
+
+# =============================================================================
+# Sed-unique m4 modules (those not provided by @rules_cc_autoconf//gnulib/m4)
+# =============================================================================
+
+SED_UNIQUE_M4_FILES = [
+    "m4/gnulib-comp.m4",
+    "m4/wchar_t.m4",
+    "m4/year2038.m4",
+]
+
+# Map each prebuilt rules_cc_autoconf gnulib m4 file directly. The mapping
+# strips the `m4/` prefix and `.m4` suffix to derive the dep label.
+GNULIB_M4_DEPS = [
+    "@rules_cc_autoconf//gnulib/m4/{}".format(file[len("m4/"):-len(".m4")])
+    for file in glob(
+        include = ["m4/*.m4"],
+        exclude = SED_UNIQUE_M4_FILES,
+    )
+]
+
+# m4/wchar_t.m4 - simple compile-time check for wchar_t type.
+autoconf(
+    name = "m4_wchar_t",
+    checks = [
+        checks.AC_TRY_COMPILE(
+            name = "gt_cv_c_wchar_t",
+            code = "#include <stddef.h>\nwchar_t foo = (wchar_t)'\\0';\nint main(void) { return 0; }\n",
+        ),
+        checks.AC_DEFINE(
+            "HAVE_WCHAR_T",
+            1,
+            requires = ["gt_cv_c_wchar_t"],
+        ),
+    ],
+)
+
+# m4/year2038.m4 - guarantees 64-bit time_t; on mingw we set the compat define.
+# Other platforms simply assume modern 64-bit time_t.
+autoconf(
+    name = "m4_year2038",
+    checks = select({
+        "@platforms//os:windows": [
+            checks.AC_DEFINE("__MINGW_USE_VC2005_COMPAT", 1),
+        ],
+        "//conditions:default": [],
+    }),
+)
+
+# m4/gnulib-comp.m4 - the gnulib aggregator. This module enables the gnulib
+# module indicators (GNULIB_*) and conditional header generation flags
+# (GL_GENERATE_*_H) that gnulib templates branch on. Without these the
+# generated lib/*.h files would expose no replacement declarations.
+autoconf(
+    name = "m4_gnulib-comp",
+    checks = [
+        # GNULIB module indicators consumed by lib/*.in.h templates.
+        # Per sed's gnulib-comp.m4, some indicators are gated to only fire
+        # inside the gnulib-tests subtree; outside tests they evaluate to 0
+        # via the undefined `IN_SED_GNULIB_TESTS` token in a `#if`.  See
+        # //modules/sed/4.9.bcr.5/overlay/config_linux.bzl for the canonical
+        # mapping that this list mirrors.
+        # --- always-1 indicators ---
+        checks.AC_SUBST("GNULIB_INET_PTON", 1),
+        checks.AC_SUBST("GNULIB_CLOSEDIR", 1),
+        checks.AC_SUBST("GNULIB_DIRFD", 1),
+        checks.AC_SUBST("GNULIB_OPENDIR", 1),
+        checks.AC_SUBST("GNULIB_READDIR", 1),
+        checks.AC_SUBST("GNULIB_FCNTL", 1),
+        checks.AC_SUBST("GNULIB_OPEN", 1),
+        checks.AC_SUBST("GNULIB_NL_LANGINFO", 1),
+        checks.AC_SUBST("GNULIB_LOCALECONV", 1),
+        checks.AC_SUBST("GNULIB_SETLOCALE_NULL", 1),
+        checks.AC_SUBST("GNULIB_PTHREAD_THREAD", 1),
+        checks.AC_SUBST("GNULIB_PTHREAD_SIGMASK", 1),
+        checks.AC_SUBST("GNULIB_RAISE", 1),
+        checks.AC_SUBST("GNULIB_SIGPROCMASK", 1),
+        checks.AC_SUBST("GNULIB_FGETC", 1),
+        checks.AC_SUBST("GNULIB_FGETS", 1),
+        checks.AC_SUBST("GNULIB_FOPEN_GNU", 1),
+        checks.AC_SUBST("GNULIB_FPRINTF", 1),
+        checks.AC_SUBST("GNULIB_FPUTC", 1),
+        checks.AC_SUBST("GNULIB_FPUTS", 1),
+        checks.AC_SUBST("GNULIB_FREAD", 1),
+        checks.AC_SUBST("GNULIB_FSCANF", 1),
+        checks.AC_SUBST("GNULIB_FWRITE", 1),
+        checks.AC_SUBST("GNULIB_GETC", 1),
+        checks.AC_SUBST("GNULIB_GETCHAR", 1),
+        checks.AC_SUBST("GNULIB_GETDELIM", 1),
+        checks.AC_SUBST("GNULIB_PRINTF", 1),
+        checks.AC_SUBST("GNULIB_PUTC", 1),
+        checks.AC_SUBST("GNULIB_PUTCHAR", 1),
+        checks.AC_SUBST("GNULIB_PUTS", 1),
+        checks.AC_SUBST("GNULIB_RENAME", 1),
+        checks.AC_SUBST("GNULIB_SCANF", 1),
+        checks.AC_SUBST("GNULIB_VFPRINTF", 1),
+        checks.AC_SUBST("GNULIB_VPRINTF", 1),
+        checks.AC_SUBST("GNULIB_CALLOC_GNU", 1),
+        checks.AC_SUBST("GNULIB_CALLOC_POSIX", 1),
+        checks.AC_SUBST("GNULIB_CANONICALIZE_FILE_NAME", 1),
+        checks.AC_SUBST("GNULIB_FREE_POSIX", 1),
+        checks.AC_SUBST("GNULIB_MALLOC_GNU", 1),
+        checks.AC_SUBST("GNULIB_MALLOC_POSIX", 1),
+        checks.AC_SUBST("GNULIB_MBTOWC", 1),
+        checks.AC_SUBST("GNULIB_MKOSTEMP", 1),
+        checks.AC_SUBST("GNULIB_REALLOCARRAY", 1),
+        checks.AC_SUBST("GNULIB_REALLOC_GNU", 1),
+        checks.AC_SUBST("GNULIB_REALLOC_POSIX", 1),
+        checks.AC_SUBST("GNULIB_REALPATH", 1),
+        checks.AC_SUBST("GNULIB_WCTOMB", 1),
+        checks.AC_SUBST("GNULIB_MEMCHR", 1),
+        checks.AC_SUBST("GNULIB_MEMPCPY", 1),
+        checks.AC_SUBST("GNULIB_MEMRCHR", 1),
+        checks.AC_SUBST("GNULIB_RAWMEMCHR", 1),
+        checks.AC_SUBST("GNULIB_STRERROR", 1),
+        checks.AC_SUBST("GNULIB_STRVERSCMP", 1),
+        checks.AC_SUBST("GNULIB_IOCTL", 1),
+        checks.AC_SUBST("GNULIB_GETRANDOM", 1),
+        checks.AC_SUBST("GNULIB_PSELECT", 1),
+        checks.AC_SUBST("GNULIB_SELECT", 1),
+        checks.AC_SUBST("GNULIB_ACCEPT", 1),
+        checks.AC_SUBST("GNULIB_BIND", 1),
+        checks.AC_SUBST("GNULIB_CONNECT", 1),
+        checks.AC_SUBST("GNULIB_LISTEN", 1),
+        checks.AC_SUBST("GNULIB_SETSOCKOPT", 1),
+        checks.AC_SUBST("GNULIB_SOCKET", 1),
+        checks.AC_SUBST("GNULIB_FSTAT", 1),
+        checks.AC_SUBST("GNULIB_LSTAT", 1),
+        checks.AC_SUBST("GNULIB_MKDIR", 1),
+        checks.AC_SUBST("GNULIB_STAT", 1),
+        checks.AC_SUBST("GNULIB_GETTIMEOFDAY", 1),
+        checks.AC_SUBST("GNULIB_CHDIR", 1),
+        checks.AC_SUBST("GNULIB_CLOSE", 1),
+        checks.AC_SUBST("GNULIB_DUP2", 1),
+        checks.AC_SUBST("GNULIB_GETDTABLESIZE", 1),
+        checks.AC_SUBST("GNULIB_READLINK", 1),
+        checks.AC_SUBST("GNULIB_RMDIR", 1),
+        checks.AC_SUBST("GNULIB_BTOWC", 1),
+        checks.AC_SUBST("GNULIB_MBRLEN", 1),
+        checks.AC_SUBST("GNULIB_MBRTOWC", 1),
+        checks.AC_SUBST("GNULIB_MBSINIT", 1),
+        checks.AC_SUBST("GNULIB_WCRTOMB", 1),
+        checks.AC_SUBST("GNULIB_WCTOB", 1),
+        # --- in-tests-only indicators (active only under gnulib-tests/) ---
+        checks.AC_SUBST("GNULIB_ENVIRON", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_EXPLICIT_BZERO", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_FDOPEN", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_FFLUSH", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_FOPEN", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_FPURGE", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_FSEEK", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_FSEEKO", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_FTELL", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_FTELLO", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_FTRUNCATE", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_GETCWD", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_GETPAGESIZE", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_ISBLANK", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_LINK", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_LOCALENAME", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_LSEEK", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_NANOSLEEP", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_PERROR", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_PIPE", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_PUTENV", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_SETENV", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_SETLOCALE", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_SLEEP", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_STRDUP", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_STRERROR_R", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_SYMLINK", "IN_SED_GNULIB_TESTS"),
+        checks.AC_SUBST("GNULIB_UNSETENV", "IN_SED_GNULIB_TESTS"),
+
+        # --- gl_MODULE_INDICATOR (AC_DEFINE in config.h) ---
+        checks.AC_DEFINE("GNULIB_CANONICALIZE_LGPL", 1),
+        checks.AC_DEFINE("GNULIB_CLOSE_STREAM", 1),
+        checks.AC_DEFINE("GNULIB_FFLUSH", 1),
+        checks.AC_DEFINE("GNULIB_FOPEN_GNU", 1),
+        checks.AC_DEFINE("GNULIB_FSCANF", 1),
+        checks.AC_DEFINE("GNULIB_ISBLANK", 1),
+        checks.AC_DEFINE("GNULIB_LOCK", 1),
+        checks.AC_DEFINE("GNULIB_MKOSTEMP", 1),
+        checks.AC_DEFINE("GNULIB_MSVC_NOTHROW", 1),
+        checks.AC_DEFINE("GNULIB_REALLOCARRAY", 1),
+        checks.AC_DEFINE("GNULIB_SCANF", 1),
+        checks.AC_DEFINE("GNULIB_STRERROR", 1),
+        checks.AC_DEFINE("GNULIB_STRERROR_R_POSIX", 1),
+        checks.AC_DEFINE("GNULIB_TEMPNAME", 1),
+        checks.AC_DEFINE("GNULIB_XALLOC", 1),
+        checks.AC_DEFINE("GNULIB_XALLOC_DIE", 1),
+
+        # gl_MODULE_INDICATOR_FOR_TESTS([cloexec])
+        # Indicator is only active inside the gnulib-tests subtree; sed itself
+        # is not in that subtree so this resolves to 0.
+        checks.AC_SUBST("IN_SED_GNULIB_TESTS", 0),
+
+        # Note: GL_GENERATE_<HDR>_H values are provided by the per-header
+        # gnulib m4 modules (assert_h, errno_h, limits-h, etc.).
+
+        # --- AC_SUBSTs from gnulib-comp.m4 envelope ---
+        checks.AC_SUBST("LIBSED_LIBDEPS", ""),
+        checks.AC_SUBST("LIBSED_LTLIBDEPS", ""),
+        checks.AC_SUBST("LIB_HARD_LOCALE", ""),
+        checks.AC_SUBST("LIBINTL", ""),
+        checks.AC_SUBST("LTLIBINTL", ""),
+    ],
+)
+
+SED_UNIQUE_AUTOCONF_TARGETS = [
+    "m4_{}".format(file[len("m4/"):-len(".m4")])
+    for file in SED_UNIQUE_M4_FILES
+]
+
+# =============================================================================
+# configure_ac - aggregate target replicating sed's configure.ac
+# =============================================================================
+
+autoconf(
+    name = "configure_ac",
+    checks = [
+        # ---- sed-specific defines from configure.ac ----
+        # AC_DEFINE([GNULIB_NO_VLA], [1])
+        checks.AC_DEFINE("GNULIB_NO_VLA", 1),
+
+        # gnulib uses GUARD_PREFIX as a prefix on its replacement-header include
+        # guards (e.g. _GL_STDDEF_H).  The shell macros in gnulib-common.m4 set
+        # this from PACKAGE_NAME; sed expects "GL".
+        checks.AC_SUBST("GUARD_PREFIX", "GL"),
+
+        # AC_CHECK_HEADERS_ONCE(locale.h errno.h wchar.h wctype.h mcheck.h)
+        # (errno.h/wchar.h/wctype.h are also handled by the dedicated gnulib m4
+        # modules but the AC_CHECK_HEADERS form additionally defines HAVE_*_H)
+        checks.AC_CHECK_HEADER(
+            "mcheck.h",
+            define = "HAVE_MCHECK_H",
+        ),
+
+        # AC_CHECK_FUNCS_ONCE(...) - only the ones not already covered by the
+        # per-function gnulib m4 modules in deps (isatty/memcpy/strtoul/readlink/
+        # popen/setlocale/wcscoll are pulled in via @rules_cc_autoconf//gnulib/m4).
+    ] + macros.AC_CHECK_FUNCS([
+        "isascii",
+        "strchr",
+        "pathconf",
+        "fchown",
+        "fchmod",
+    ]) + [
+
+        # AC_CACHE_CHECK([whether "rt" can be used with fopen])
+        # The original is a runtime check. Compile-only environments can't
+        # safely assert this; default to "no" for portability, then enable
+        # on cygwin/mingw via a select() below.
+        checks.AC_DEFINE("LOCALEDIR", '"/usr/share/locale"'),
+    ] + select({
+        "@platforms//os:windows": [
+            checks.AC_DEFINE("HAVE_FOPEN_RT", 1),
+        ],
+        "//conditions:default": [],
+    }) + select({
+        ":i18n_disabled": [
+            # Mirrors `if test "x$enable_i18n" = xno; then ac_cv_func_wcscoll=no`
+            checks.AC_SUBST("ac_cv_func_wcscoll", "no"),
+        ],
+        "//conditions:default": [],
+    }),
+    deps = [
+        ":sed_package_info",
+    ] + SED_UNIQUE_AUTOCONF_TARGETS + GNULIB_M4_DEPS,
+)
+
+# =============================================================================
+# Generated config header (config.h.in -> config.h)
+# =============================================================================
+
+autoconf_hdr(
+    name = "config_h",
+    out = "config.h",
+    template = "config_h.in",
+    deps = [":configure_ac"],
+)
+
+# =============================================================================
+# Generated gnulib headers (lib/*.in.h -> lib/*.h)
+# =============================================================================
+
+# Templates that need both @VAR@ substitution AND inline expansion of the
+# gnulib helper headers (_GL_ARG_NONNULL, _GL_WARN_ON_USE, etc.)
+# Each entry maps a generated header path to its template.  Headers whose
+# upstream gnulib module only generates a replacement when the system version
+# is incomplete (errno.h, assert.h) are intentionally omitted: on the supported
+# targets the system header is fine and gnulib code includes it with <>.
+GENERATED_HDRS = {
+    "lib/alloca.h": "lib/alloca.in.h",
+    "lib/ctype.h": "lib/ctype.in.h",
+    "lib/fcntl.h": "lib/fcntl.in.h",
+    "lib/inttypes.h": "lib/inttypes.in.h",
+    "lib/langinfo.h": "lib/langinfo.in.h",
+    "lib/limits.h": "lib/limits.in.h",
+    "lib/locale.h": "lib/locale.in.h",
+    "lib/selinux/context.h": "lib/se-context.in.h",
+    "lib/selinux/label.h": "lib/se-label.in.h",
+    "lib/selinux/selinux.h": "lib/se-selinux.in.h",
+    "lib/stdalign.h": "lib/stdalign.in.h",
+    "lib/stddef.h": "lib/stddef.in.h",
+    "lib/stdint.h": "lib/stdint.in.h",
+    "lib/stdio.h": "lib/stdio.in.h",
+    "lib/stdlib.h": "lib/stdlib.in.h",
+    "lib/string.h": "lib/string.in.h",
+    "lib/sys/random.h": "lib/sys_random.in.h",
+    "lib/sys/stat.h": "lib/sys_stat.in.h",
+    "lib/sys/types.h": "lib/sys_types.in.h",
+    "lib/time.h": "lib/time.in.h",
+    "lib/unistd.h": "lib/unistd.in.h",
+    "lib/wchar.h": "lib/wchar.in.h",
+    "lib/wctype.h": "lib/wctype.in.h",
+}
+
+# Fallback substitutions for @VAR@ markers that gnulib leaves unset on the
+# supported targets (typically because the upstream m4 module only sets them
+# when the system header is incomplete). Each value is what the corresponding
+# variable defaults to in gnulib's Makefile.am when its check did not fire.
+DEFAULT_SUBSTITUTIONS = {
+    "@HAVE_LANGINFO_T_FMT_AMPM@": "1",
+    "@HAVE_LANGINFO_YESEXPR@": "1",
+}
+
+[
+    autoconf_hdr(
+        name = hdr[:-len(".h")].replace("/", "_") + "_h",
+        out = hdr,
+        defaults = True,
+        inlines = {
+            "/* The definition of _GL_ARG_NONNULL is copied here.  */": "lib/arg-nonnull.h",
+            "/* The definition of _GL_WARN_ON_USE is copied here.  */": "lib/warn-on-use.h",
+            "/* The definitions of _GL_FUNCDECL_RPL etc. are copied here.  */": "lib/c++defs.h",
+        },
+        mode = "subst",
+        substitutions = DEFAULT_SUBSTITUTIONS,
+        template = template,
+        deps = [":configure_ac"],
+    )
+    for hdr, template in GENERATED_HDRS.items()
+]
+
+# lib/malloc/*.gl.h -- gnulib renames a few headers so they can be included
+# with a fresh set of macros; the contents are unchanged so a plain file copy
+# is enough.
+[
+    copy_file(
+        name = name,
+        src = src,
+        out = out,
+    )
+    for name, src, out in [
+        ("dynarray_skeleton_gl_h", "lib/malloc/dynarray-skeleton.c", "lib/malloc/dynarray-skeleton.gl.h"),
+        ("dynarray_gl_h", "lib/malloc/dynarray.h", "lib/malloc/dynarray.gl.h"),
+        ("scratch_buffer_gl_h", "lib/malloc/scratch_buffer.h", "lib/malloc/scratch_buffer.gl.h"),
+    ]
+]
+
+# lib/static_assert.h - source file uses gnulib's _GL_VERIFY macros under the
+# alternate name _GL_STATIC_ASSERT.  Generated via expand_template token rename.
+expand_template(
+    name = "static_assert_h",
+    out = "lib/static_assert.h",
+    substitutions = {
+        "_GL_VERIFY": "_GL_STATIC_ASSERT",
+        "_gl_verify": "_gl_static_assert",
+    },
+    template = "lib/verify.h",
+)
+
+# stdckdint.h is a C23 header that most systems don't ship.  The gnulib template
+# has no @VAR@ markers, so we just copy it into lib/ verbatim.
+copy_file(
+    name = "stdckdint_h",
+    src = "lib/stdckdint.in.h",
+    out = "lib/stdckdint.h",
+)
+
+GENERATED_HDR_LABELS = [":{}".format(hdr[:-len(".h")].replace("/", "_") + "_h") for hdr in GENERATED_HDRS.keys()]
+
+ALL_GENERATED_HDRS = [
+    ":config_h",
+    ":static_assert_h",
+    ":stdckdint_h",
+    ":dynarray_skeleton_gl_h",
+    ":dynarray_gl_h",
+    ":scratch_buffer_gl_h",
+] + GENERATED_HDR_LABELS
+
+# =============================================================================
+# Library sources
+# =============================================================================
+
+COPTS = select({
+    "@rules_cc//cc/compiler:msvc-cl": [
+        "/w",
+    ],
+    "//conditions:default": [
+        "-w",
+        # Some gnulib sources (e.g. lib/localeinfo.c) use C11 `static_assert`
+        # as a bare keyword via <assert.h>; require at least C11.
+        "-std=gnu11",
+    ],
+})
+
+LOCAL_DEFINES = [
+    "HAVE_CONFIG_H",
+    # gnulib's lib/localeinfo.c uses the bare keyword `static_assert` without
+    # including <assert.h>.  config.h normally provides this define only when
+    # HAVE_C_STATIC_ASSERT is unset, but the autoconf check correctly detects
+    # C11 support on modern toolchains and leaves it set, so we surface the
+    # mapping here unconditionally.
+    "static_assert=_Static_assert",
+]
+
+# Headers shipped in the lib/ tree that gnulib code includes directly.
+LIB_STATIC_HDRS = glob(
+    include = ["lib/**/*.h"],
+    exclude = ["lib/**/*.in.h"] + list(GENERATED_HDRS.keys()) + [
+        "lib/static_assert.h",
+        "lib/malloc/dynarray-skeleton.gl.h",
+        "lib/malloc/dynarray.gl.h",
+        "lib/malloc/scratch_buffer.gl.h",
+    ],
+)
+
+cc_library(
+    name = "lib_hdrs",
+    hdrs = LIB_STATIC_HDRS + ALL_GENERATED_HDRS,
+    includes = [
+        ".",
+        "lib",
+    ],
+    textual_hdrs = [
+        "lib/regex_internal.c",
+        "lib/regcomp.c",
+        "lib/regexec.c",
+        "lib/malloc/dynarray-skeleton.c",
+    ],
+)
+
+LIB_SRCS = [
+    "lib/realloc.c",
+    "lib/copy-acl.c",
+    "lib/set-acl.c",
+    "lib/acl-errno-valid.c",
+    "lib/acl-internal.c",
+    "lib/get-permissions.c",
+    "lib/set-permissions.c",
+    "lib/basename-lgpl.c",
+    "lib/binary-io.c",
+    "lib/btowc.c",
+    "lib/c-ctype.c",
+    "lib/c-strcasecmp.c",
+    "lib/c-strncasecmp.c",
+    "lib/canonicalize-lgpl.c",
+    "lib/cloexec.c",
+    "lib/close.c",
+    "lib/close-stream.c",
+    "lib/closeout.c",
+    "lib/dfa.c",
+    "lib/localeinfo.c",
+    "lib/dirname-lgpl.c",
+    "lib/stripslash.c",
+    "lib/dup2.c",
+    "lib/error.c",
+    "lib/exitfail.c",
+    "lib/fcntl.c",
+    "lib/fd-hook.c",
+    "lib/fpending.c",
+    "lib/free.c",
+    "lib/fstat.c",
+    "lib/getdelim.c",
+    "lib/getdtablesize.c",
+    "lib/getprogname.c",
+    "lib/getrandom.c",
+    "lib/malloc/dynarray_at_failure.c",
+    "lib/malloc/dynarray_emplace_enlarge.c",
+    "lib/malloc/dynarray_finalize.c",
+    "lib/malloc/dynarray_resize.c",
+    "lib/malloc/dynarray_resize_clear.c",
+    "lib/malloc/scratch_buffer_grow.c",
+    "lib/malloc/scratch_buffer_grow_preserve.c",
+    "lib/malloc/scratch_buffer_set_array_size.c",
+    "lib/hard-locale.c",
+    "lib/ialloc.c",
+    "lib/localcharset.c",
+    "lib/lstat.c",
+    "lib/malloca.c",
+    "lib/mbrlen.c",
+    "lib/mbrtowc.c",
+    "lib/mbsinit.c",
+    "lib/mbtowc.c",
+    "lib/memchr.c",
+    "lib/mempcpy.c",
+    "lib/memrchr.c",
+    "lib/mkdir.c",
+    "lib/mkostemp.c",
+    "lib/nl_langinfo.c",
+    "lib/nl_langinfo-lock.c",
+    "lib/obstack.c",
+    "lib/open.c",
+    "lib/progname.c",
+    "lib/qcopy-acl.c",
+    "lib/qset-acl.c",
+    "lib/quotearg.c",
+    "lib/rawmemchr.c",
+    "lib/readlink.c",
+    "lib/reallocarray.c",
+    "lib/regex.c",
+    "lib/rename.c",
+    "lib/rmdir.c",
+    "lib/se-context.c",
+    "lib/se-label.c",
+    "lib/se-selinux.c",
+    "lib/setlocale_null.c",
+    "lib/setlocale-lock.c",
+    "lib/stat.c",
+    "lib/stat-time.c",
+    "lib/stdio-read.c",
+    "lib/stdio-write.c",
+    "lib/strerror.c",
+    "lib/strerror-override.c",
+    "lib/strverscmp.c",
+    "lib/tempname.c",
+    "lib/unistd.c",
+    "lib/version-etc.c",
+    "lib/version-etc-fsf.c",
+    "lib/wcrtomb.c",
+    "lib/wctob.c",
+    "lib/wctomb.c",
+    "lib/wctype-h.c",
+    "lib/xmalloc.c",
+    "lib/xalloc-die.c",
+] + select({
+    ":threads_enabled": [
+        "lib/glthread/lock.c",
+        "lib/glthread/threadlib.c",
+    ],
+    "//conditions:default": [],
+}) + select({
+    "@platforms//os:macos": [
+        "lib/acl_entries.c",
+        "lib/fwriting.c",
+        "lib/getfilecon.c",
+    ],
+    "@platforms//os:windows": [
+        "lib/windows-mutex.c",
+        "lib/windows-once.c",
+        "lib/windows-recmutex.c",
+        "lib/windows-rwlock.c",
+    ],
+    "//conditions:default": [],
+}) + select({
+    # msvc-inval/msvc-nothrow wrap the MSVC C runtime's invalid-parameter
+    # handler and no-throw semantics; they do not build on MinGW.
+    "@rules_cc//cc/compiler:msvc-cl": [
+        "lib/msvc-inval.c",
+        "lib/msvc-nothrow.c",
+    ],
+    "//conditions:default": [],
+})
+
+# Curated subset of gnulib utility headers that sed bundles and that we
+# consider safe to expose as a public API.  "Safe" means the header parses
+# correctly without our gnulib lib/stdio.h / lib/stdlib.h / etc. shadowing
+# the system headers, AND without requiring our private config.h -- i.e. it
+# only pulls in standard system headers or other listed-here gnulib headers.
+#
+# Headers explicitly excluded:
+#   * lib/xalloc.h, lib/ialloc.h, lib/c-ctype.h -- they `#error "Please
+#     include config.h first."` because they emit `_GL_INLINE` static-inline
+#     functions, and config.h is intentionally not part of the public surface.
+#   * lib/error.h, lib/version-etc.h, lib/binary-io.h -- they need
+#     `_GL_ATTRIBUTE_FORMAT_*` macros that come from our lib/stdio.h
+#     replacement (which we keep out of consumers' include paths).
+#   * lib/gettext.h -- pulls <libintl.h>; sed itself doesn't link libintl.
+#
+# Exposed under the "sed/" prefix (via include_prefix) so consumers write
+# `#include "sed/regex.h"` -- unambiguous and won't shadow system <regex.h>.
+PUBLIC_HDRS = [
+    # Header-only macro utilities.
+    "lib/attribute.h",
+    "lib/intprops.h",
+    "lib/intprops-internal.h",
+    "lib/ignore-value.h",
+    "lib/verify.h",
+    "lib/xalloc-oversized.h",
+
+    # Indexed-size type used by dfa/quotearg.
+    "lib/idx.h",
+
+    # Pattern matching: POSIX regex + sed's fast DFA matcher.
+    "lib/regex.h",
+    "lib/dfa.h",
+
+    # Obstack: extensible object stacks (header declares the API; objstack
+    # functions come from libsed itself).
+    "lib/obstack.h",
+
+    # String quoting helpers.
+    "lib/quote.h",
+    "lib/quotearg.h",
+
+    # Filename manipulation.
+    "lib/dirname.h",
+    "lib/filename.h",
+    "lib/basename-lgpl.h",
+
+    # Locale / charset queries.
+    "lib/localcharset.h",
+    "lib/hard-locale.h",
+    "lib/setlocale_null.h",
+
+    # Standalone misc.
+    "lib/closeout.h",
+    "lib/close-stream.h",
+    "lib/exitfail.h",
+    "lib/getprogname.h",
+    "lib/progname.h",
+]
+
+cc_library(
+    name = "lib/sed",
+    srcs = LIB_SRCS,
+    hdrs = PUBLIC_HDRS,
+    copts = COPTS,
+    # `lib_hdrs` is `implementation_deps` so the gnulib lib/*.h replacements
+    # (which shadow <stdio.h>, <string.h>, etc.) don't leak to consumers of
+    # `:libsed`.  See https://github.com/bazelbuild/bazel-central-registry/issues/7642
+    # for the bug class this avoids -- under stricter compilers like
+    # clang-21 a transitive lib/stdio.h on the include path can mis-order
+    # against system headers and break unrelated gnulib macros.
+    implementation_deps = [":lib_hdrs"],
+    include_prefix = "sed",
+    local_defines = LOCAL_DEFINES,
+    strip_include_prefix = "lib",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "libsed",
+    actual = ":lib/sed",
+    visibility = ["//visibility:public"],
+)
+
+# =============================================================================
+# sed binary
+# =============================================================================
+
+write_file(
+    name = "version_h",
+    out = "sed/version.h",
+    content = [
+        "extern char const *Version;",
+        "",
+    ],
+    newline = "unix",
+)
+
+write_file(
+    name = "version_c",
+    out = "sed/version.c",
+    content = [
+        "#include \"config.h\"",
+        "char const *Version = \"{}\";".format(VERSION),
+        "",
+    ],
+    newline = "unix",
+)
+
+cc_binary(
+    name = "bin/sed",
+    srcs = [
+        "basicdefs.h",
+        "sed/compile.c",
+        "sed/debug.c",
+        "sed/execute.c",
+        "sed/mbcs.c",
+        "sed/regexp.c",
+        "sed/sed.c",
+        "sed/sed.h",
+        "sed/utils.c",
+        "sed/utils.h",
+        "sed/version.c",
+        "sed/version.h",
+    ],
+    copts = COPTS,
+    includes = [
+        ".",
+        "sed",
+    ],
+    local_defines = LOCAL_DEFINES + [
+        # sed.c uses these directly via bindtextdomain().  AC_INIT exports
+        # PACKAGE, and configure normally sets LOCALEDIR from --datarootdir.
+        "PACKAGE=\\\"sed\\\"",
+        "LOCALEDIR=\\\"/usr/share/locale\\\"",
+    ],
+    visibility = ["//visibility:public"],
+    # sed_bin needs lib_hdrs directly: sed/utils.h uses macros like
+    # _GL_ATTRIBUTE_FORMAT_PRINTF_STANDARD that come from lib/stdio.h.
+    # libsed marks lib_hdrs as implementation_deps so consumers don't inherit
+    # those headers transitively -- we re-list them here for the binary that
+    # genuinely needs them.
+    deps = [
+        ":lib_hdrs",
+        ":libsed",
+    ],
+)
+
+# Legacy alias
+alias(
+    name = "sed_bin",
+    actual = ":bin/sed",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "sed",
+    actual = ":bin/sed",
+    visibility = ["//visibility:public"],
+)
+
+# =============================================================================
+# Smoke test
+# =============================================================================
+
+write_file(
+    name = "sed_test_input",
+    out = "sed_test_input.txt",
+    content = [
+        "Hello World",
+        "This is a test.",
+        "Hello again.",
+        "",
+    ],
+    newline = "unix",
+)
+
+genrule(
+    name = "sed_test_output",
+    srcs = ["sed_test_input.txt"],
+    outs = ["sed_test_output.txt"],
+    cmd = "$(execpath :sed) 's/Hello/Hallo/g' $(execpath :sed_test_input.txt) > $@",
+    cmd_bat = "$(execpath :sed) \"s/Hello/Hallo/g\" $(execpath :sed_test_input.txt) > $@",
+    tools = [":sed"],
+)
+
+write_file(
+    name = "sed_test_golden",
+    out = "sed_test_golden.txt",
+    content = [
+        "Hallo World",
+        "This is a test.",
+        "Hallo again.",
+        "",
+    ],
+    newline = "unix",
+)
+
+diff_test(
+    name = "sed_diff_test",
+    file1 = "sed_test_output.txt",
+    file2 = "sed_test_golden.txt",
+)
+
+# =============================================================================
+# Additional native sed behavior tests
+# =============================================================================
+#
+# The upstream testsuite/*.sh tests rely on the gnulib init.sh framework,
+# `path_prepend_ ./sed`, and an executable bit on the .sh files that the
+# tarball-overlay flow doesn't preserve.  Rather than carry a fragile runner,
+# each `behavior_*` pair below runs one sed expression against a fixture and
+# compares the output to a checked-in golden.
+#
+# The fixture is the "Summum Bonum" poem by Robert Browning, inlined here
+# byte-for-byte from testsuite/distrib.inp lines 13-28 of the upstream
+# tarball.  Inlining keeps the input fully hermetic (no host tool needed to
+# slice it out) and so the tests can run on a host that doesn't yet have a
+# working sed -- which is precisely the situation we're building sed for.
+write_file(
+    name = "browning_input",
+    out = "browning.txt",
+    content = [
+        "                _Summum Bonum_",
+        "",
+        "    All the breath and the bloom of the",
+        "            year in the bag of one bee:",
+        "    All the wonder and wealth of the mine in",
+        "         the heart of one gem:",
+        "    In the core of one pearl all the shade and the",
+        "           shine of the sea:",
+        "    Breath and bloom, shade and shine, -- wonder,",
+        "        wealth, and -- how far above them --",
+        "          Truth, thats brighter than gem,",
+        "          Trust, that's purer than pearl, --",
+        "    Brightest truth, purest trust in the universe --",
+        "              all were for me",
+        "                 In the kiss of one girl.",
+        "        -- Robert Browning",
+        "",
+    ],
+    newline = "unix",
+)
+
+SED_BEHAVIOR_TESTS = {
+    # Delete blank lines.
+    "delete_blanks": {
+        "expr": "/^$$/d",
+        "golden": [
+            "                _Summum Bonum_",
+            "    All the breath and the bloom of the",
+            "            year in the bag of one bee:",
+            "    All the wonder and wealth of the mine in",
+            "         the heart of one gem:",
+            "    In the core of one pearl all the shade and the",
+            "           shine of the sea:",
+            "    Breath and bloom, shade and shine, -- wonder,",
+            "        wealth, and -- how far above them --",
+            "          Truth, thats brighter than gem,",
+            "          Trust, that's purer than pearl, --",
+            "    Brightest truth, purest trust in the universe --",
+            "              all were for me",
+            "                 In the kiss of one girl.",
+            "        -- Robert Browning",
+            "",
+        ],
+    },
+    # Extended regex via -E with alternation.
+    "extended_regex": {
+        "expr": "s/(pearl|gem|sea)/JEWEL/g",
+        "extra_flags": "-E",
+        "golden": [
+            "                _Summum Bonum_",
+            "",
+            "    All the breath and the bloom of the",
+            "            year in the bag of one bee:",
+            "    All the wonder and wealth of the mine in",
+            "         the heart of one JEWEL:",
+            "    In the core of one JEWEL all the shade and the",
+            "           shine of the JEWEL:",
+            "    Breath and bloom, shade and shine, -- wonder,",
+            "        wealth, and -- how far above them --",
+            "          Truth, thats brighter than JEWEL,",
+            "          Trust, that's purer than JEWEL, --",
+            "    Brightest truth, purest trust in the universe --",
+            "              all were for me",
+            "                 In the kiss of one girl.",
+            "        -- Robert Browning",
+            "",
+        ],
+    },
+    # `-n` plus explicit `p`: print only lines mentioning the speaker.
+    "print_match": {
+        "expr": "/Browning/p",
+        "extra_flags": "-n",
+        "golden": [
+            "        -- Robert Browning",
+            "",
+        ],
+    },
+    # Address range with grouped commands - strip leading whitespace from
+    # the first three content lines after the title.
+    "range_trim": {
+        "expr": "3,5s/^ *//",
+        "golden": [
+            "                _Summum Bonum_",
+            "",
+            "All the breath and the bloom of the",
+            "year in the bag of one bee:",
+            "All the wonder and wealth of the mine in",
+            "         the heart of one gem:",
+            "    In the core of one pearl all the shade and the",
+            "           shine of the sea:",
+            "    Breath and bloom, shade and shine, -- wonder,",
+            "        wealth, and -- how far above them --",
+            "          Truth, thats brighter than gem,",
+            "          Trust, that's purer than pearl, --",
+            "    Brightest truth, purest trust in the universe --",
+            "              all were for me",
+            "                 In the kiss of one girl.",
+            "        -- Robert Browning",
+            "",
+        ],
+    },
+    # Hold-space swap: reverse line order ("tac" emulation).
+    # Both `$` chars are doubled so genrule's cmd template leaves them alone.
+    # No `-n`: the classic idiom relies on auto-print for the final line.
+    "reverse_lines": {
+        "expr": "1!G;h;$$!d",
+        "golden": [
+            "        -- Robert Browning",
+            "                 In the kiss of one girl.",
+            "              all were for me",
+            "    Brightest truth, purest trust in the universe --",
+            "          Trust, that's purer than pearl, --",
+            "          Truth, thats brighter than gem,",
+            "        wealth, and -- how far above them --",
+            "    Breath and bloom, shade and shine, -- wonder,",
+            "           shine of the sea:",
+            "    In the core of one pearl all the shade and the",
+            "         the heart of one gem:",
+            "    All the wonder and wealth of the mine in",
+            "            year in the bag of one bee:",
+            "    All the breath and the bloom of the",
+            "",
+            "                _Summum Bonum_",
+            "",
+        ],
+    },
+    # Basic substitution: rewrite the title marker.
+    "substitution": {
+        "expr": "s/_Summum Bonum_/== Summum Bonum ==/",
+        "golden": [
+            "                == Summum Bonum ==",
+            "",
+            "    All the breath and the bloom of the",
+            "            year in the bag of one bee:",
+            "    All the wonder and wealth of the mine in",
+            "         the heart of one gem:",
+            "    In the core of one pearl all the shade and the",
+            "           shine of the sea:",
+            "    Breath and bloom, shade and shine, -- wonder,",
+            "        wealth, and -- how far above them --",
+            "          Truth, thats brighter than gem,",
+            "          Trust, that's purer than pearl, --",
+            "    Brightest truth, purest trust in the universe --",
+            "              all were for me",
+            "                 In the kiss of one girl.",
+            "        -- Robert Browning",
+            "",
+        ],
+    },
+}
+
+[
+    [
+        write_file(
+            name = "behavior_{}_golden".format(name),
+            out = "behavior_{}_golden.txt".format(name),
+            content = spec["golden"],
+            newline = "unix",
+        ),
+        genrule(
+            name = "behavior_{}_output".format(name),
+            srcs = [":browning_input"],
+            outs = ["behavior_{}_output.txt".format(name)],
+            cmd = "$(execpath :sed) {extra} '{expr}' $(SRCS) > $@".format(
+                expr = spec["expr"],
+                extra = spec.get("extra_flags", ""),
+            ),
+            tools = [":sed"],
+        ),
+        diff_test(
+            name = "behavior_{}_test".format(name),
+            file1 = "behavior_{}_output.txt".format(name),
+            file2 = "behavior_{}_golden.txt".format(name),
+        ),
+    ]
+    for name, spec in SED_BEHAVIOR_TESTS.items()
+]

@@ -1,0 +1,8 @@
+{
+    "url": "https://dl.xpdfreader.com/xpdf-4.06.tar.gz",
+    "strip_prefix": "xpdf-4.06",
+    "integrity": "sha256-HDj1J8RsruD3EjhtQqiFuWox7ZzhGQToclWYWYlNE34=",
+    "overlay": {
+        "BUILD.bazel": "sha256-yMAiqlgUtR1yIWch2fvSvtEI9McPWFAT5VuixOuI25M="
+    }
+}

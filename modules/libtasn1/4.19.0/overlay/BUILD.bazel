@@ -1,0 +1,175 @@
+"""Bazel build for libtasn1 — GNU ASN.1 parsing/DER encoding library.
+
+Ported from lib/Makefile.am and configure.ac (libtasn1-4.19.0).
+Scope: the runtime library only. The offline `asn1Parser` tool (which
+compiles from the bison grammar in ASN1.y -> ASN1.c) is not built here.
+"""
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc_autoconf//autoconf:autoconf.bzl", "autoconf")
+load("@rules_cc_autoconf//autoconf:autoconf_hdr.bzl", "autoconf_hdr")
+load("@rules_cc_autoconf//autoconf:checks.bzl", "checks", "macros")
+load("@rules_cc_autoconf//autoconf:package_info.bzl", "package_info")
+
+package_info(
+    name = "package",
+    aliases = {
+        "PACKAGE": "PACKAGE_NAME",
+    },
+    module_bazel = "MODULE.bazel",
+    strip_bcr_version = True,
+)
+
+# libtasn1.h.in expects @VERSION@, @MAJOR_VERSION@, @MINOR_VERSION@,
+# @PATCH_VERSION@, @NUMBER_VERSION@. Configure.ac derives all four
+# from PACKAGE_VERSION via sed at bootstrap time; here we mirror them
+# statically — keep in sync with MODULE.bazel's `version = "4.19.0"`.
+# (package_info's PACKAGE_VERSION result is #define-shaped (quoted),
+# so it can't drive text-mode @VERSION@ substitution directly.)
+_VERSION = "4.19.0"
+
+_MAJOR_VERSION = "4"
+
+_MINOR_VERSION = "19"
+
+_PATCH_VERSION = "0"
+
+_NUMBER_VERSION = "0x041300"
+
+# Feature checks matching configure.ac's AC_CHECK_HEADERS / AC_CHECK_FUNCS /
+# AC_CHECK_SIZEOF calls plus the small set of gnulib-driven defines that
+# lib/*.c reads via config.h.
+autoconf(
+    name = "configure_ac",
+    checks = macros.AC_CHECK_HEADERS([
+        "sys/types.h",
+        "stdint.h",
+        "inttypes.h",
+        "unistd.h",
+        "string.h",
+        "strings.h",
+    ]) + macros.AC_CHECK_FUNCS([
+        "clock_gettime",
+        "fmemopen",
+    ]) + [
+        # unsigned int is 4 on every supported target.
+        checks.AC_DEFINE(
+            "SIZEOF_UNSIGNED_INT",
+            value = "4",
+        ),
+        # Always define; source uses only the public strverscmp symbol
+        # supplied by lib/gl/strverscmp.c on non-glibc platforms.
+        checks.AC_DEFINE(
+            "HAVE_STRVERSCMP",
+            value = "1",
+        ),
+        # Substituted into lib/includes/libtasn1.h.in.
+        checks.AC_SUBST("VERSION", _VERSION),
+        checks.AC_SUBST("MAJOR_VERSION", _MAJOR_VERSION),
+        checks.AC_SUBST("MINOR_VERSION", _MINOR_VERSION),
+        checks.AC_SUBST("PATCH_VERSION", _PATCH_VERSION),
+        checks.AC_SUBST("NUMBER_VERSION", _NUMBER_VERSION),
+    ] + select({
+        # LLP64 (Windows x86_64) has 4-byte unsigned long.
+        "@platforms//os:windows": [
+            checks.AC_DEFINE(
+                "SIZEOF_UNSIGNED_LONG_INT",
+                value = "4",
+            ),
+        ],
+        # LP64 (Linux/macOS/BSD 64-bit) has 8-byte unsigned long.
+        "//conditions:default": [
+            checks.AC_DEFINE(
+                "SIZEOF_UNSIGNED_LONG_INT",
+                value = "8",
+            ),
+        ],
+    }),
+    deps = [":package"],
+)
+
+autoconf_hdr(
+    name = "config_h",
+    out = "config.h",
+    template = "config.h.in",
+    deps = [":configure_ac"],
+)
+
+# Public API header — @VERSION@ from :package (auto from MODULE.bazel);
+# @MAJOR_VERSION@ / @MINOR_VERSION@ / @PATCH_VERSION@ / @NUMBER_VERSION@
+# from the AC_SUBST calls above.
+autoconf_hdr(
+    name = "libtasn1_h",
+    out = "lib/includes/libtasn1.h",
+    mode = "subst",
+    template = "lib/includes/libtasn1.h.in",
+    deps = [":configure_ac"],
+)
+
+# The runtime library sources; ASN1.c is bison output for the offline
+# asn1Parser tool and is intentionally excluded.
+LIBTASN1_SRCS = [
+    "lib/coding.c",
+    "lib/decoding.c",
+    "lib/element.c",
+    "lib/errors.c",
+    "lib/gstr.c",
+    "lib/parser_aux.c",
+    "lib/structure.c",
+    "lib/version.c",
+]
+
+LIBTASN1_INTERNAL_HDRS = [
+    "lib/element.h",
+    "lib/gstr.h",
+    "lib/int.h",
+    "lib/parser_aux.h",
+    "lib/structure.h",
+]
+
+# Bundled gnulib bits pulled in via `#include "c-ctype.h"` / `#include
+# "minmax.h"` / the strverscmp symbol.  Keeping this tiny — only what
+# libtasn1's runtime library actually references.
+GL_SRCS = [
+    "lib/gl/strverscmp.c",
+]
+
+GL_HDRS = [
+    "lib/gl/arg-nonnull.h",
+    "lib/gl/c-ctype.h",
+    "lib/gl/cdefs.h",
+    "lib/gl/intprops.h",
+    "lib/gl/intprops-internal.h",
+    "lib/gl/libc-config.h",
+    "lib/gl/minmax.h",
+    "lib/gl/_Noreturn.h",
+    "lib/gl/warn-on-use.h",
+]
+
+cc_library(
+    name = "tasn1",
+    srcs = LIBTASN1_SRCS + LIBTASN1_INTERNAL_HDRS + GL_SRCS + GL_HDRS + [
+        ":config_h",
+    ],
+    hdrs = [":libtasn1_h"],
+    includes = [
+        ".",
+        "lib",
+        "lib/gl",
+        "lib/includes",
+    ],
+    local_defines = [
+        "HAVE_CONFIG_H",
+        "ASN1_BUILDING",
+        # Expose strverscmp() decl from <string.h> on glibc; on non-glibc
+        # platforms lib/gl/strverscmp.c defines the symbol locally.
+        "_GNU_SOURCE",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "libtasn1",
+    actual = ":tasn1",
+    visibility = ["//visibility:public"],
+)

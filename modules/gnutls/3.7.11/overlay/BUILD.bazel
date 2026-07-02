@@ -1,0 +1,741 @@
+"""Bazel build for GnuTLS — TLS/SSL library.
+
+Ported from configure.ac and lib/**/Makefile.am (gnutls-3.7.11).
+Scope: core libgnutls only — no `src/` CLI tools, no libdane, no C++
+binding, no guile, no test suite. Optional feature toggles listed in
+`Feature flags` below mirror the autoconf --enable-*/--disable-* switches
+users would set at ./configure time.
+"""
+
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc_autoconf//autoconf:autoconf.bzl", "autoconf")
+load("@rules_cc_autoconf//autoconf:autoconf_hdr.bzl", "autoconf_hdr")
+load("@rules_cc_autoconf//autoconf:checks.bzl", "checks", "macros")
+load("@rules_cc_autoconf//autoconf:package_info.bzl", "package_info")
+load("//bazel:gperf_static.bzl", "gperf_static")
+
+# gnutls.h.in expects @VERSION@, @MAJOR_VERSION@, @MINOR_VERSION@,
+# @PATCH_VERSION@, @NUMBER_VERSION@. Configure.ac derives them from
+# PACKAGE_VERSION via sed at bootstrap time; here we mirror them by
+# hand — keep in sync with MODULE.bazel's `version = "3.7.11"`.
+_VERSION = "3.7.11"
+
+_MAJOR_VERSION = "3"
+
+_MINOR_VERSION = "7"
+
+_PATCH_VERSION = "11"
+
+# 0x030700 + patch (autotools formula: printf '0x%02x%02x%02x')
+_NUMBER_VERSION = "0x03070b"
+
+# =============================================================================
+# Feature flags — public knobs mapped from configure.ac --enable/--with.
+# =============================================================================
+
+# --with-zlib / --without-zlib (default disabled here; upstream default
+# is enabled but we don't want to force a zlib link on every consumer).
+bool_flag(
+    name = "use_zlib",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+# --disable-hardware-acceleration (default enabled). Reserved for the
+# eventual x86/aarch64 asm port; currently no-op — plain C used
+# everywhere so this only affects the ENABLE_HARDWARE_ACCELERATION
+# define, not what sources compile.
+bool_flag(
+    name = "use_hw_accel",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+# --disable-gost (default enabled). Gates GOST curve/cipher sources
+# under lib/nettle/gost/ plus a couple of top-level files.
+bool_flag(
+    name = "enable_gost",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+# TLS feature toggles — one per `AC_ARG_ENABLE` in configure.ac. All
+# default on to match `./configure` with no flags.
+bool_flag(
+    name = "enable_srp",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "enable_psk",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "enable_ocsp",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "enable_alpn",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "enable_dtls_srtp",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "enable_heartbeat",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+# --with-default-priority-string=STR (default "NORMAL"). Baked into
+# lib/priority.c via config.h.
+string_flag(
+    name = "default_priority_string",
+    build_setting_default = "NORMAL",
+    visibility = ["//visibility:public"],
+)
+
+# --with-pkcs12-iter-count=N (default 600000).
+string_flag(
+    name = "pkcs12_iter_count",
+    build_setting_default = "600000",
+    visibility = ["//visibility:public"],
+)
+
+# --with-system-priority-file=PATH (default /etc/gnutls/config).
+string_flag(
+    name = "system_priority_file",
+    build_setting_default = "/etc/gnutls/config",
+    visibility = ["//visibility:public"],
+)
+
+# =============================================================================
+# config_setting mirrors
+# =============================================================================
+
+[
+    config_setting(
+        name = "{}_enabled".format(flag),
+        flag_values = {":" + flag: "True"},
+    )
+    for flag in [
+        "use_zlib",
+        "use_hw_accel",
+        "enable_gost",
+        "enable_srp",
+        "enable_psk",
+        "enable_ocsp",
+        "enable_alpn",
+        "enable_dtls_srtp",
+        "enable_heartbeat",
+    ]
+]
+
+# =============================================================================
+# autoconf / autoconf_hdr
+# =============================================================================
+
+package_info(
+    name = "package",
+    aliases = {
+        "PACKAGE": "PACKAGE_NAME",
+    },
+    module_bazel = "MODULE.bazel",
+    strip_bcr_version = True,
+)
+
+autoconf(
+    name = "configure_ac",
+    checks = macros.AC_CHECK_HEADERS([
+        "netinet/tcp.h",
+        "stdatomic.h",
+        "threads.h",
+        "sanitizer/asan_interface.h",
+        "valgrind/memcheck.h",
+    ]) + macros.AC_CHECK_FUNCS([
+        "fork",
+        "setitimer",
+        "getrusage",
+        "getpwuid_r",
+        "nanosleep",
+        "daemon",
+        "getpid",
+        "localtime",
+        "mmap",
+        "__register_atfork",
+        "secure_getenv",
+        "getauxval",
+        "clock_gettime",
+        "fmemopen",
+    ]) + [
+        # nettle-optional functions upstream probes via AC_CHECK_FUNCS.
+        # nettle 3.9.1's public headers include the first two but not
+        # the GOST28147/Magma/Kuznyechik families (they live in a
+        # separate crypto-experimental branch upstream). When the
+        # HAVE_NETTLE_* macro is unset, gnutls compiles its bundled
+        # copy under lib/nettle/gost/ instead — the ENABLE_GOST flag
+        # brings those .c files into srcs and their headers into the
+        # include path.
+        checks.AC_DEFINE(
+            "HAVE_NETTLE_RSA_SEC_DECRYPT",
+            value = "1",
+        ),
+        checks.AC_DEFINE(
+            "HAVE_NETTLE_STREEBOG512_UPDATE",
+            value = "1",
+        ),
+        # Version substitutions for lib/includes/gnutls/gnutls.h.in.
+        checks.AC_SUBST("VERSION", _VERSION),
+        checks.AC_SUBST("MAJOR_VERSION", _MAJOR_VERSION),
+        checks.AC_SUBST("MINOR_VERSION", _MINOR_VERSION),
+        checks.AC_SUBST("PATCH_VERSION", _PATCH_VERSION),
+        checks.AC_SUBST("NUMBER_VERSION", _NUMBER_VERSION),
+        # struct iovec: on POSIX include <sys/uio.h> and typedef it as
+        # giovec_t; on Windows define a compatible struct inline.
+        # Matches configure.ac's AC_CHECK_MEMBERS([struct iovec.iov_base]).
+    ] + select({
+        "@platforms//os:windows": [
+            checks.AC_SUBST(
+                "DEFINE_IOVEC_T",
+                "typedef struct { void *iov_base; size_t iov_len; } giovec_t;",
+            ),
+        ],
+        "//conditions:default": [
+            checks.AC_SUBST(
+                "DEFINE_IOVEC_T",
+                "#include <sys/uio.h>\ntypedef struct iovec giovec_t;",
+            ),
+        ],
+    }) + [
+        # Explicit sizes — see libtasn1 overlay for rationale.
+        checks.AC_DEFINE(
+            "SIZEOF_UNSIGNED_INT",
+            value = "4",
+        ),
+        checks.AC_DEFINE(
+            "SIZEOF_TIME_T",
+            value = "8",
+        ),
+        # struct iovec.iov_base member — universally present on POSIX.
+        checks.AC_DEFINE(
+            "HAVE_STRUCT_IOVEC_IOV_BASE",
+            value = "1",
+        ),
+    ] + select({
+        "@platforms//os:windows": [
+            checks.AC_DEFINE(
+                "SIZEOF_UNSIGNED_LONG_INT",
+                value = "4",
+            ),
+        ],
+        "//conditions:default": [
+            checks.AC_DEFINE(
+                "SIZEOF_UNSIGNED_LONG_INT",
+                value = "8",
+            ),
+        ],
+    }),
+    deps = [":package"],
+)
+
+autoconf_hdr(
+    name = "config_h",
+    out = "config.h",
+    template = "config.h.in",
+    deps = [":configure_ac"],
+)
+
+autoconf_hdr(
+    name = "gnutls_h",
+    out = "lib/includes/gnutls/gnutls.h",
+    mode = "subst",
+    template = "lib/includes/gnutls/gnutls.h.in",
+    deps = [":configure_ac"],
+)
+
+# =============================================================================
+# gperf-generated tables
+# =============================================================================
+#
+# gnutls's priority-string parser and X.509 extension recognizer are
+# perfect-hash lookups compiled from .gperf sources. //bazel:gperf_static
+# runs `gperf` (from the @gperf//:gperf module) and then rewrites the
+# exported lookup table symbol to `static`, matching upstream's
+# `gperf ... | sed` pipeline without needing a shell.
+
+gperf_static(
+    name = "gen_priority_options_h",
+    src = "lib/priority_options.gperf",
+    out = "lib/priority_options.h",
+    struct_name = "priority_options_st",
+)
+
+gperf_static(
+    name = "gen_supported_exts_h",
+    src = "lib/x509/supported_exts.gperf",
+    out = "lib/x509/supported_exts.h",
+    struct_name = "supported_exts_st",
+)
+
+# =============================================================================
+# Feature-driven local_defines
+# =============================================================================
+#
+# Each flag maps to a compile-time -D that mirrors what configure.ac
+# would put in config.h. Keeping this in `local_defines` (rather than
+# an autoconf(select(...))) keeps the flag → source-list gating and
+# flag → define gating in one place per feature.
+FEATURE_DEFINES = select({
+    ":enable_srp_enabled": ["ENABLE_SRP"],
+    "//conditions:default": [],
+}) + select({
+    ":enable_psk_enabled": ["ENABLE_PSK"],
+    "//conditions:default": [],
+}) + select({
+    ":enable_ocsp_enabled": ["ENABLE_OCSP"],
+    "//conditions:default": [],
+}) + select({
+    ":enable_alpn_enabled": ["ENABLE_ALPN"],
+    "//conditions:default": [],
+}) + select({
+    ":enable_dtls_srtp_enabled": ["ENABLE_DTLS_SRTP"],
+    "//conditions:default": [],
+}) + select({
+    ":enable_heartbeat_enabled": ["ENABLE_HEARTBEAT"],
+    "//conditions:default": [],
+}) + select({
+    ":enable_gost_enabled": ["ENABLE_GOST"],
+    "//conditions:default": [],
+}) + select({
+    ":use_zlib_enabled": ["HAVE_LIBZ"],
+    "//conditions:default": [],
+}) + select({
+    ":use_hw_accel_enabled": ["ENABLE_HARDWARE_ACCELERATION"],
+    "//conditions:default": [],
+})
+
+# Simple integer-valued flag define — safe in local_defines.
+STRING_FLAG_DEFINES = [
+    "PKCS12_ITER_COUNT=600000",
+]
+
+# String-valued defines go through copts (Bazel's local_defines rejects
+# tokens containing spaces, which the shell-quoted string values here
+# would produce). One `-D` per entry, with backslash-quoted strings.
+STRING_FLAG_COPTS = [
+    '-DDEFAULT_PRIORITY_STRING=\\"NORMAL\\"',
+    '-DSYSTEM_PRIORITY_FILE=\\"/etc/gnutls/config\\"',
+    # Legacy autotools synonym for PACKAGE_VERSION — config.h emits the
+    # latter (from package_info) but not this one.
+    '-DVERSION=\\"' + _VERSION + '\\"',
+    # SONAMEs and feature strings surfaced by gnutls_check_version() /
+    # the "hardware-features"/"tls-features" info keys. Autotools
+    # computes each SONAME from libtool versioning; hardcode here —
+    # nothing runtime-critical parses them.
+    '-DGNUTLS_LIBRARY_SONAME=\\"libgnutls.so.30\\"',
+    '-DNETTLE_LIBRARY_SONAME=\\"libnettle.so.8\\"',
+    '-DHOGWEED_LIBRARY_SONAME=\\"libhogweed.so.6\\"',
+    '-DGMP_LIBRARY_SONAME=\\"libgmp.so.10\\"',
+    '-DHW_FEATURES=\\"none\\"',
+    '-DTLS_FEATURES=\\"\\"',
+]
+
+# =============================================================================
+# Source lists — mirror lib/**/Makefile.am
+# =============================================================================
+
+# lib/COBJECTS from lib/Makefile.am. `pkix_asn1_tab.c` and
+# `gnutls_asn1_tab.c` are pre-generated in the release tarball, no
+# build-time asn1Parser needed.
+LIB_CORE_SRCS = [
+    "lib/alert.c",
+    "lib/anon_cred.c",
+    "lib/atfork.c",
+    "lib/auth.c",
+    "lib/auto-verify.c",
+    "lib/buffers.c",
+    "lib/cert-cred.c",
+    "lib/cert-cred-rawpk.c",
+    "lib/cert-cred-x509.c",
+    "lib/cert-session.c",
+    "lib/cipher.c",
+    "lib/cipher-cbc.c",
+    "lib/cipher_int.c",
+    "lib/compress.c",
+    "lib/constate.c",
+    "lib/crypto-api.c",
+    "lib/crypto-backend.c",
+    "lib/crypto-selftests.c",
+    "lib/crypto-selftests-pk.c",
+    "lib/datum.c",
+    "lib/db.c",
+    "lib/debug.c",
+    "lib/dh.c",
+    "lib/dh-primes.c",
+    "lib/dh-session.c",
+    "lib/dtls.c",
+    "lib/dtls-sw.c",
+    "lib/ecc.c",
+    "lib/errors.c",
+    "lib/extv.c",
+    "lib/file.c",
+    "lib/fingerprint.c",
+    "lib/fips.c",
+    "lib/global.c",
+    "lib/gnutls_asn1_tab.c",
+    "lib/handshake.c",
+    "lib/handshake-checks.c",
+    "lib/handshake-tls13.c",
+    "lib/hash_int.c",
+    "lib/hello_ext.c",
+    "lib/hello_ext_lib.c",
+    "lib/inih/ini.c",
+    "lib/iov.c",
+    "lib/kx.c",
+    "lib/locks.c",
+    "lib/mbuffers.c",
+    "lib/mem.c",
+    "lib/mpi.c",
+    "lib/ocsp-api.c",
+    "lib/openpgp_compat.c",
+    "lib/pcert.c",
+    "lib/pin.c",
+    "lib/pk.c",
+    "lib/pkix_asn1_tab.c",
+    "lib/prf.c",
+    "lib/priority.c",
+    "lib/privkey.c",
+    "lib/privkey_raw.c",
+    "lib/profiles.c",
+    "lib/pubkey.c",
+    "lib/random.c",
+    "lib/randomart.c",
+    "lib/range.c",
+    "lib/record.c",
+    "lib/safe-memfuncs.c",
+    "lib/secrets.c",
+    "lib/session.c",
+    "lib/session_pack.c",
+    "lib/sslv2_compat.c",
+    "lib/state.c",
+    "lib/stek.c",
+    "lib/str.c",
+    # str-iconv.c / str-idna.c / str-unicode.c pull in libunistring for
+    # Unicode NFKC/IDNA on SNI hostnames + password normalization. The
+    # bundled lib/unistring/ tree in the tarball is 84 .c files with
+    # gnulib .in.h templates that we haven't ported yet. The overlay
+    # supplies lib/stubs_unicode.c in place of those three files to
+    # keep the symbols linkable — non-ASCII inputs pass through
+    # byte-identically rather than getting the proper transform.
+    # Follow-up: add a libunistring BCR module and put the original
+    # three files back into srcs.
+    "lib/stubs_unicode.c",
+    "lib/supplemental.c",
+    "lib/system.c",
+    "lib/system/certs.c",
+    "lib/system/fastopen.c",
+    "lib/system/ktls.c",
+    "lib/system/sockets.c",
+    "lib/system/threads.c",
+    "lib/system_override.c",
+    "lib/tls-sig.c",
+    "lib/tpm.c",
+    "lib/urls.c",
+    "lib/verify-tofu.c",
+    "lib/x509_b64.c",
+]
+
+LIB_AUTH_SRCS_BASE = [
+    "lib/auth/anon.c",
+    "lib/auth/anon_ecdh.c",
+    "lib/auth/cert.c",
+    "lib/auth/dh_common.c",
+    "lib/auth/dhe.c",
+    "lib/auth/dhe_psk.c",
+    "lib/auth/ecdhe.c",
+    "lib/auth/psk.c",
+    "lib/auth/psk_passwd.c",
+    "lib/auth/rsa.c",
+    "lib/auth/rsa_psk.c",
+    "lib/auth/srp_kx.c",
+    "lib/auth/srp_passwd.c",
+    "lib/auth/srp_rsa.c",
+    "lib/auth/srp_sb64.c",
+]
+
+LIB_ALGORITHMS_SRCS = [
+    "lib/algorithms/cert_types.c",
+    "lib/algorithms/ciphers.c",
+    "lib/algorithms/ciphersuites.c",
+    "lib/algorithms/ecc.c",
+    "lib/algorithms/groups.c",
+    "lib/algorithms/kx.c",
+    "lib/algorithms/mac.c",
+    "lib/algorithms/protocols.c",
+    "lib/algorithms/publickey.c",
+    "lib/algorithms/secparams.c",
+    "lib/algorithms/sign.c",
+]
+
+LIB_EXT_SRCS_BASE = [
+    "lib/ext/client_cert_type.c",
+    "lib/ext/compress_certificate.c",
+    "lib/ext/cookie.c",
+    "lib/ext/dumbfw.c",
+    "lib/ext/early_data.c",
+    "lib/ext/ec_point_formats.c",
+    "lib/ext/etm.c",
+    "lib/ext/ext_master_secret.c",
+    "lib/ext/heartbeat.c",
+    "lib/ext/key_share.c",
+    "lib/ext/max_record.c",
+    "lib/ext/post_handshake.c",
+    "lib/ext/pre_shared_key.c",
+    "lib/ext/psk_ke_modes.c",
+    "lib/ext/record_size_limit.c",
+    "lib/ext/safe_renegotiation.c",
+    "lib/ext/server_cert_type.c",
+    "lib/ext/server_name.c",
+    "lib/ext/session_ticket.c",
+    "lib/ext/signature.c",
+    "lib/ext/srp.c",
+    "lib/ext/status_request.c",
+    "lib/ext/supported_groups.c",
+    "lib/ext/supported_versions.c",
+]
+
+LIB_X509_SRCS_BASE = [
+    "lib/x509/attributes.c",
+    "lib/x509/common.c",
+    "lib/x509/crl.c",
+    "lib/x509/crl_write.c",
+    "lib/x509/crq.c",
+    "lib/x509/dn.c",
+    "lib/x509/email-verify.c",
+    "lib/x509/extensions.c",
+    "lib/x509/hostname-verify.c",
+    "lib/x509/ip.c",
+    "lib/x509/key_decode.c",
+    "lib/x509/key_encode.c",
+    "lib/x509/krb5.c",
+    "lib/x509/mpi.c",
+    "lib/x509/name_constraints.c",
+    "lib/x509/output.c",
+    "lib/x509/pkcs12.c",
+    "lib/x509/pkcs12_bag.c",
+    "lib/x509/pkcs12_encr.c",
+    "lib/x509/pkcs7.c",
+    "lib/x509/pkcs7-attrs.c",
+    "lib/x509/pkcs7-crypt.c",
+    "lib/x509/pkcs7-output.c",
+    "lib/x509/privkey.c",
+    "lib/x509/privkey_openssl.c",
+    "lib/x509/privkey_pkcs8.c",
+    "lib/x509/privkey_pkcs8_pbes1.c",
+    "lib/x509/prov-seed.c",
+    "lib/x509/sign.c",
+    "lib/x509/spki.c",
+    "lib/x509/time.c",
+    "lib/x509/tls_features.c",
+    "lib/x509/verify.c",
+    "lib/x509/verify-high.c",
+    "lib/x509/verify-high2.c",
+    "lib/x509/virt-san.c",
+    "lib/x509/x509.c",
+    "lib/x509/x509_dn.c",
+    "lib/x509/x509_ext.c",
+    "lib/x509/x509_write.c",
+]
+
+LIB_NETTLE_BASE_SRCS = [
+    "lib/nettle/cipher.c",
+    "lib/nettle/init.c",
+    "lib/nettle/mac.c",
+    "lib/nettle/mpi.c",
+    "lib/nettle/pk.c",
+    "lib/nettle/prf.c",
+    "lib/nettle/rnd.c",
+    "lib/nettle/int/dsa-compute-k.c",
+    "lib/nettle/int/dsa-keygen-fips186.c",
+    "lib/nettle/int/dsa-validate.c",
+    "lib/nettle/int/ecdsa-compute-k.c",
+    "lib/nettle/int/mpn-base256.c",
+    "lib/nettle/int/provable-prime.c",
+    "lib/nettle/int/rsa-keygen-fips186.c",
+    "lib/nettle/int/rsa-pad.c",
+    "lib/nettle/int/tls1-prf.c",
+]
+
+# Platform-specific RNG source. gnutls's nettle backend picks one of
+# sysrng-{linux,netbsd,getentropy,bcrypt,windows}.c based on config.h
+# probes; we pin per @platforms//os.
+LIB_NETTLE_RNG_SRCS = select({
+    "@platforms//os:windows": ["lib/nettle/sysrng-bcrypt.c"],
+    "@platforms//os:macos": ["lib/nettle/sysrng-getentropy.c"],
+    "//conditions:default": ["lib/nettle/sysrng-linux.c"],
+})
+
+# Gated by :enable_gost.
+LIB_NETTLE_GOST_SRCS = [
+    "lib/nettle/gost/acpkm.c",
+    "lib/nettle/gost/bignum-le.c",
+    "lib/nettle/gost/cmac-kuznyechik.c",
+    "lib/nettle/gost/cmac-magma.c",
+    "lib/nettle/gost/gost28147.c",
+    "lib/nettle/gost/gost-wrap.c",
+    "lib/nettle/gost/gostdsa-mask.c",
+    "lib/nettle/gost/hmac-streebog.c",
+    "lib/nettle/gost/kuznyechik.c",
+    "lib/nettle/gost/magma.c",
+    "lib/nettle/gost/streebog.c",
+    "lib/nettle/gost/streebog-meta.c",
+    "lib/nettle/gost/write-le32.c",
+    "lib/nettle/gost_keywrap.c",
+]
+
+LIB_TLS13_SRCS = [
+    "lib/tls13/anti_replay.c",
+    "lib/tls13/certificate.c",
+    "lib/tls13/certificate_request.c",
+    "lib/tls13/certificate_verify.c",
+    "lib/tls13/early_data.c",
+    "lib/tls13/encrypted_extensions.c",
+    "lib/tls13/finished.c",
+    "lib/tls13/hello_retry.c",
+    "lib/tls13/key_update.c",
+    "lib/tls13/post_handshake.c",
+    "lib/tls13/psk_ext_parser.c",
+    "lib/tls13/session_ticket.c",
+]
+
+LIB_EXTRAS_SRCS = [
+    "lib/extras/hex.c",
+    "lib/extras/randomart.c",
+]
+
+# Windows-only vs POSIX-only system key module.
+LIB_SYSTEM_KEYS_SRCS = select({
+    "@platforms//os:windows": ["lib/system/keys-win.c"],
+    "//conditions:default": ["lib/system/keys-dummy.c"],
+})
+
+# =============================================================================
+# gnulib support — the minimal subset lib/*.c #include's.
+# =============================================================================
+GL_SRCS = [
+    "gl/basename-lgpl.c",
+    "gl/c-ctype.c",
+    "gl/c-strcasecmp.c",
+    "gl/c-strncasecmp.c",
+    "gl/dirname-lgpl.c",
+    "gl/gl_linkedhash_list.c",
+    "gl/gl_list.c",
+    "gl/hash.c",
+    "gl/hash-pjw-bare.c",
+    "gl/read-file.c",
+    "gl/stripslash.c",
+]
+
+# =============================================================================
+# cc_library
+# =============================================================================
+
+# All internal headers referenced across the source tree. Globbed rather
+# than enumerated — srcs already spells out what compiles.
+INTERNAL_HDRS = glob([
+    "lib/**/*.h",
+    "gl/**/*.h",
+])
+
+cc_library(
+    name = "gnutls",
+    srcs = LIB_CORE_SRCS + LIB_AUTH_SRCS_BASE + LIB_ALGORITHMS_SRCS +
+           LIB_EXT_SRCS_BASE + LIB_X509_SRCS_BASE + LIB_NETTLE_BASE_SRCS +
+           LIB_TLS13_SRCS + LIB_EXTRAS_SRCS + GL_SRCS + INTERNAL_HDRS + [
+        ":config_h",
+        ":gen_priority_options_h",
+        ":gen_supported_exts_h",
+    ] + LIB_NETTLE_RNG_SRCS + LIB_SYSTEM_KEYS_SRCS + select({
+        ":enable_gost_enabled": LIB_NETTLE_GOST_SRCS + [
+            "lib/auth/vko_gost.c",
+            "lib/vko.c",
+        ],
+        "//conditions:default": [],
+    }) + select({
+        ":enable_ocsp_enabled": [
+            "lib/x509/ocsp.c",
+            "lib/x509/ocsp_output.c",
+        ],
+        "//conditions:default": [],
+    }) + select({
+        ":enable_alpn_enabled": ["lib/ext/alpn.c"],
+        "//conditions:default": [],
+    }) + select({
+        ":enable_dtls_srtp_enabled": ["lib/ext/srtp.c"],
+        "//conditions:default": [],
+    }),
+    hdrs = glob([
+        "lib/includes/gnutls/*.h",
+    ]) + [":gnutls_h"],
+    copts = STRING_FLAG_COPTS + select({
+        "@platforms//os:windows": [],
+        "//conditions:default": ["-fvisibility=hidden"],
+    }),
+    includes = [
+        ".",
+        "gl",
+        "lib",
+        "lib/auth",
+        "lib/ext",
+        "lib/extras",
+        "lib/includes",
+        "lib/nettle",
+        "lib/nettle/gost",
+        "lib/nettle/int",
+        "lib/x509",
+    ],
+    linkopts = select({
+        "@platforms//os:windows": [
+            "-DEFAULTLIB:advapi32.lib",
+            "-DEFAULTLIB:crypt32.lib",
+            "-DEFAULTLIB:ws2_32.lib",
+            "-DEFAULTLIB:bcrypt.lib",
+            "-DEFAULTLIB:ncrypt.lib",
+        ],
+        "//conditions:default": [],
+    }),
+    local_defines = [
+        "HAVE_CONFIG_H",
+        # visibility helper used by lib/gnutls_int.h.
+        "BUILDING_LIBGNUTLS",
+        # Silences a bunch of GNU-extension probes and matches what
+        # `./configure` sets for glibc.
+        "_GNU_SOURCE",
+    ] + FEATURE_DEFINES + STRING_FLAG_DEFINES,
+    visibility = ["//visibility:public"],
+    deps = [
+        "@libtasn1",
+        "@nettle",
+        "@nettle//:hogweed",
+    ] + select({
+        ":use_zlib_enabled": ["@zlib"],
+        "//conditions:default": [],
+    }),
+)
+
+alias(
+    name = "libgnutls",
+    actual = ":gnutls",
+    visibility = ["//visibility:public"],
+)

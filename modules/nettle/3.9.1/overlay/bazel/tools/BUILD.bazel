@@ -1,0 +1,10 @@
+"""Build-time helper binaries invoked from //bazel/*.bzl rules."""
+
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+cc_binary(
+    name = "stdout_to_file",
+    srcs = ["stdout_to_file.cc"],
+)

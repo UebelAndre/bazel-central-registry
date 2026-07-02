@@ -1,0 +1,20 @@
+{
+    "homepage": "https://gnutls.org/index.html",
+    "maintainers": [
+        {
+            "email": "26427366+UebelAndre@users.noreply.github.com",
+            "github": "UebelAndre",
+            "github_user_id": 26427366,
+            "name": "UebelAndre"
+        }
+    ],
+    "repository": [
+        "https://www.gnupg.org/ftp/gcrypt/gnutls/",
+        "https://artfiles.org/gnupg.org/gnutls/",
+        "https://mirrors.dotsrc.org/gcrypt/gnutls/"
+    ],
+    "versions": [
+        "3.7.11"
+    ],
+    "yanked_versions": {}
+}

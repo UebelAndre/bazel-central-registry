@@ -1,0 +1,19 @@
+{
+    "homepage": "https://www.lysator.liu.se/~nisse/nettle/",
+    "maintainers": [
+        {
+            "email": "26427366+UebelAndre@users.noreply.github.com",
+            "github": "UebelAndre",
+            "github_user_id": 26427366,
+            "name": "UebelAndre"
+        }
+    ],
+    "repository": [
+        "https://ftp.gnu.org/gnu/nettle/",
+        "https://ftpmirror.gnu.org/gnu/nettle/"
+    ],
+    "versions": [
+        "3.9.1"
+    ],
+    "yanked_versions": {}
+}

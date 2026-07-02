@@ -1,0 +1,12 @@
+{
+    "type": "archive",
+    "url": "https://ftp.gnu.org/gnu/libtasn1/libtasn1-4.19.0.tar.gz",
+    "mirror_urls": [
+        "https://ftpmirror.gnu.org/gnu/libtasn1/libtasn1-4.19.0.tar.gz"
+    ],
+    "integrity": "sha256-FhPwrBz0hNbsDOO4wG1WJjzHJC8cI7MNgtI940WmP3o=",
+    "strip_prefix": "libtasn1-4.19.0",
+    "overlay": {
+        "BUILD.bazel": "sha256-3A/QP40yhW8/JoCg8wyLdRDYbSXL2mrJOqmQ9UH+N58="
+    }
+}

@@ -1,0 +1,16 @@
+{
+    "type": "archive",
+    "url": "https://ftp.gnu.org/gnu/nettle/nettle-3.9.1.tar.gz",
+    "mirror_urls": [
+        "https://ftpmirror.gnu.org/gnu/nettle/nettle-3.9.1.tar.gz"
+    ],
+    "integrity": "sha256-zP7/mBsMpxu9b7ywVPQHxg/7ZEOJpb6A1nFtW1UMbOM=",
+    "strip_prefix": "nettle-3.9.1",
+    "overlay": {
+        "BUILD.bazel": "sha256-zWn1m9lhx1bVhlwDAa2iOa3shiLq4z0vKeuESBGWOqM=",
+        "bazel/BUILD.bazel": "sha256-PPp01J6/zgcHF84UbeiP0iuT7lyJVgU8s0wuRe9pg3M=",
+        "bazel/eccdata_gen.bzl": "sha256-mv/D/it55hYHX9jD2/GI1npwPSIvh1u4Lmjv1P40BJc=",
+        "bazel/tools/BUILD.bazel": "sha256-gdmemTppYd5F+KK1+tHao1bMmLNaP8QyL8GEJkGgSCM=",
+        "bazel/tools/stdout_to_file.cc": "sha256-XgBluSyqIhb6ZFjr7I5e+V64u6552H8JB5OUAzMCgyE="
+    }
+}

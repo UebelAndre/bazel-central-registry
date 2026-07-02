@@ -1,0 +1,18 @@
+{
+    "type": "archive",
+    "url": "https://www.gnupg.org/ftp/gcrypt/gnutls/v3.7/gnutls-3.7.11.tar.xz",
+    "mirror_urls": [
+        "https://mirrors.dotsrc.org/gcrypt/gnutls/v3.7/gnutls-3.7.11.tar.xz"
+    ],
+    "integrity": "sha256-kOM3UEAx730wd6saUsqLrJsvcrxFTJU2WhzR4OgeBuk=",
+    "strip_prefix": "gnutls-3.7.11",
+    "overlay": {
+        "BUILD.bazel": "sha256-qPZs4T0LPZkWap8YpB8Xwzslu2PJDlsy9UXb6ttiU+o=",
+        "bazel/BUILD.bazel": "sha256-PPp01J6/zgcHF84UbeiP0iuT7lyJVgU8s0wuRe9pg3M=",
+        "bazel/gperf_static.bzl": "sha256-1J2aJchBnoeUZG7+BUxGQwqHFMYynR4PmtnCV+gJXeo=",
+        "bazel/tools/BUILD.bazel": "sha256-4iT0ALoSnrkgD7q9wsKn4b3xSnOdqG7c2iuV83vfHc8=",
+        "bazel/tools/stdout_to_file.cc": "sha256-XgBluSyqIhb6ZFjr7I5e+V64u6552H8JB5OUAzMCgyE=",
+        "bazel/tools/text_replace.cc": "sha256-qEJKwN/ctXF6hoC+seHdViTQhx78cyObvRF4IYW2yS0=",
+        "lib/stubs_unicode.c": "sha256-rfFQUCy2x3f3c2PIGW8zKFI0zQIrUWBS73ljM5s3Ey0="
+    }
+}

@@ -1,0 +1,20 @@
+{
+    "homepage": "https://www.gnu.org/software/autoconf/",
+    "maintainers": [
+        {
+            "email": "26427366+UebelAndre@users.noreply.github.com",
+            "github": "UebelAndre",
+            "github_user_id": 26427366,
+            "name": "UebelAndre"
+        }
+    ],
+    "repository": [
+        "https://ftp.gnu.org/gnu/autoconf/",
+        "https://ftpmirror.gnu.org/gnu/autoconf/",
+        "https://mirrors.kernel.org/gnu/autoconf/"
+    ],
+    "versions": [
+        "2.73"
+    ],
+    "yanked_versions": {}
+}

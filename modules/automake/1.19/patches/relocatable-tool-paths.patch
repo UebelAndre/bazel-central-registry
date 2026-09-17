@@ -1,0 +1,193 @@
+diff -uNr am-orig/bin/aclocal.in am-work/bin/aclocal.in
+--- am-orig/bin/aclocal.in	2026-08-10 05:01:49.000000000 -0700
++++ am-work/bin/aclocal.in	2026-09-17 13:34:31.415162443 -0700
+@@ -23,12 +23,25 @@
+ 
+ BEGIN
+ {
+-  unshift (@INC, '@datadir@/@PACKAGE@-@APIVERSION@')
++  require File::Basename;
++  require File::Spec;
++
++  # '@pkgvdatadir@' rather than '@datadir@/@PACKAGE@-@APIVERSION@': configure
++  # substitutes both to the same thing, but the former is a single string, so
++  # a build that lays the tree out differently can point it somewhere else.
++  #
++  # rel2abs returns an absolute substitution unchanged, so a `make install`
++  # tree behaves exactly as before.  A relative one is anchored to this
++  # script, which is what the Bazel build substitutes so that the runfiles
++  # tree can be staged anywhere.
++  unshift (@INC, File::Spec->rel2abs ('@pkgvdatadir@',
++                                      File::Basename::dirname ($0)))
+     unless $ENV{AUTOMAKE_UNINSTALLED};
+ }
+ 
+ use File::Basename;
+ use File::Path ();
++use File::Spec;
+ 
+ use Automake::Config;
+ use Automake::General;
+@@ -63,8 +76,13 @@
+ # --aclocal-path option/ACLOCAL_PATH environment variable, and reset
+ # with the '--system-acdir' option.
+ my @user_includes = ();
+-my @automake_includes = ('@datadir@/aclocal-' . $APIVERSION);
+-my @system_includes = ('@datadir@/aclocal');
++# '@automake_acdir@' and '@system_acdir@' are what configure substitutes
++# these two directories from anyway; see the BEGIN block above for why they
++# now go through rel2abs.
++my @automake_includes =
++  (File::Spec->rel2abs ('@automake_acdir@', File::Basename::dirname ($0)));
++my @system_includes =
++  (File::Spec->rel2abs ('@system_acdir@', File::Basename::dirname ($0)));
+ my $aclocal_path = '';
+ 
+ # Whether we should copy M4 file in $user_includes[0].
+@@ -319,7 +337,10 @@
+       elsif (!$dry_run)
+ 	{
+           xmkdir_p ($destdir);
+-	  xsystem ('cp', $src, $dest);
++	  # copy_file rather than cp(1), so that --install needs no POSIX
++	  # toolbox on PATH.
++	  copy_file ($src, $dest)
++	    or fatal "cannot copy $src to $dest: $!";
+ 	}
+     }
+ }
+@@ -767,7 +788,13 @@
+   # aclocal.m4 is not yet available.
+   local $ENV{WARNINGS} = 'none';
+ 
+-  my $traces = ($ENV{AUTOM4TE} || '@am_AUTOM4TE@');
++  my $traces = $ENV{AUTOM4TE} || '@am_AUTOM4TE@';
++  # A bare program name is looked up on PATH, which is what a normal `make
++  # install` substitutes.  A relative path is anchored to this script, which
++  # is what the Bazel build substitutes so that the runfiles tree can be
++  # staged anywhere.  An absolute path is used as is.
++  $traces = File::Spec->rel2abs ($traces, File::Basename::dirname ($0))
++    if $traces =~ m,/, && !File::Spec->file_name_is_absolute ($traces);
+   $traces .= " --language Autoconf-without-aclocal-m4 ";
+ 
+   # Support AC_CONFIG_MACRO_DIRS also with older autoconf.
+diff -uNr am-orig/bin/automake.in am-work/bin/automake.in
+--- am-orig/bin/automake.in	2026-08-25 12:48:59.000000000 -0700
++++ am-work/bin/automake.in	2026-09-17 13:34:31.414850624 -0700
+@@ -26,7 +26,19 @@
+ 
+ BEGIN
+ {
+-  unshift (@INC, '@datadir@/@PACKAGE@-@APIVERSION@')
++  require File::Basename;
++  require File::Spec;
++
++  # '@pkgvdatadir@' rather than '@datadir@/@PACKAGE@-@APIVERSION@': configure
++  # substitutes both to the same thing, but the former is a single string, so
++  # a build that lays the tree out differently can point it somewhere else.
++  #
++  # rel2abs returns an absolute substitution unchanged, so a `make install`
++  # tree behaves exactly as before.  A relative one is anchored to this
++  # script, which is what the Bazel build substitutes so that the runfiles
++  # tree can be staged anywhere.
++  unshift (@INC, File::Spec->rel2abs ('@pkgvdatadir@',
++                                      File::Basename::dirname ($0)))
+     unless $ENV{AUTOMAKE_UNINSTALLED};
+ 
+   # Override SHELL.  This is required on DJGPP so that system() uses
+@@ -5372,7 +5384,15 @@
+   # and will see its warnings then.
+   local $ENV{WARNINGS} = 'none';
+ 
+-  my $traces = ($ENV{AUTOCONF} || '@am_AUTOCONF@') . " ";
++  my $autoconf = $ENV{AUTOCONF} || '@am_AUTOCONF@';
++  # A bare program name is looked up on PATH, which is what a normal `make
++  # install` substitutes.  A relative path is anchored to this script, which
++  # is what the Bazel build substitutes so that the runfiles tree can be
++  # staged anywhere.  An absolute path is used as is.
++  $autoconf = File::Spec->rel2abs ($autoconf, File::Basename::dirname ($0))
++    if $autoconf =~ m,/, && !File::Spec->file_name_is_absolute ($autoconf);
++
++  my $traces = "$autoconf ";
+ 
+   # Use a separator unlikely to be used, not ':', the default, which
+   # has a precise meaning for AC_CONFIG_FILES and so on.
+@@ -7798,7 +7818,9 @@
+                   $trailer = "; error while making link: $!";
+                 }
+             }
+-          elsif (system ('cp', "$libdir/$file", $fullfile))
++          # copy_file rather than cp(1), so that --add-missing needs no
++          # POSIX toolbox on PATH.
++          elsif (! copy_file ("$libdir/$file", $fullfile))
+             {
+               $suppress = 0;
+               $trailer = "\n    error while copying";
+diff -uNr am-orig/lib/Automake/Config.in am-work/lib/Automake/Config.in
+--- am-orig/lib/Automake/Config.in	2026-08-10 05:01:49.000000000 -0700
++++ am-work/lib/Automake/Config.in	2026-09-17 13:34:31.415257364 -0700
+@@ -20,6 +20,8 @@
+ use 5.006; use strict; use warnings;
+ 
+ use Exporter;
++use File::Basename;
++use File::Spec;
+ 
+ our @ISA = qw (Exporter);
+ our @EXPORT = qw ($APIVERSION $PACKAGE $PACKAGE_BUGREPORT $VERSION
+@@ -32,7 +34,11 @@
+ our $PACKAGE_BUGREPORT = '@PACKAGE_BUGREPORT@';
+ our $VERSION = '@VERSION@';
+ our $RELEASE_YEAR = '@RELEASE_YEAR@';
+-our $libdir = $ENV{"AUTOMAKE_LIBDIR"} || '@datadir@/@PACKAGE@-@APIVERSION@';
++# '@pkgvdatadir@' rather than '@datadir@/@PACKAGE@-@APIVERSION@', and
++# resolved relative to the running script; see the BEGIN block of automake
++# and aclocal for the reasoning.
++our $libdir = $ENV{"AUTOMAKE_LIBDIR"}
++  || File::Spec->rel2abs ('@pkgvdatadir@', File::Basename::dirname ($0));
+ 
+ our $perl_threads = 0;
+ # We need at least this version for CLONE support.
+diff -uNr am-orig/lib/Automake/FileUtils.pm am-work/lib/Automake/FileUtils.pm
+--- am-orig/lib/Automake/FileUtils.pm	2026-08-10 05:01:49.000000000 -0700
++++ am-work/lib/Automake/FileUtils.pm	2026-09-17 13:34:31.415323455 -0700
+@@ -43,6 +43,7 @@
+   our @EXPORT = qw (&contents
+ 		    &find_file &mtime
+ 		    &update_file
++		    &copy_file
+ 		    &xsystem &xsystem_hint &xqx
+ 		    &dir_has_case_matching_file &reset_dir_cache
+ 		    &set_dir_cache_file);
+@@ -205,6 +206,31 @@
+ }
+ 
+ 
++=item C<copy_file ($from, $to)>
++
++Copy C<$from> to C<$to>, preserving its permission bits.  Returns true on
++success and false on failure, with C<$!> set.
++
++=cut
++
++# &copy_file ($FROM, $TO)
++# -----------------------
++#
++# Upstream shelled out to cp(1) for this.  Doing it in Perl means automake and
++# aclocal need no POSIX toolbox on PATH, which matters when they run inside a
++# build sandbox.  File::Copy::copy does not carry the mode over and several of
++# the files automake installs are scripts, so set it by hand.
++sub copy_file ($$)
++{
++  my ($from, $to) = @_;
++  return 0
++    unless File::Copy::copy ($from, $to);
++  my $mode = (stat $from)[2];
++  return 1
++    unless defined $mode;
++  return chmod ($mode & 07777, $to) ? 1 : 0;
++}
++
+ =item C<handle_exec_errors ($command, [$expected_exit_code = 0], [$hint])>
+ 
+ Display an error message for C<$command>, based on the content of

@@ -1,0 +1,18 @@
+{
+    "url": "https://ftp.gnu.org/gnu/autoconf/autoconf-2.73.tar.gz",
+    "mirror_urls": [
+        "https://mirrors.kernel.org/gnu/autoconf/autoconf-2.73.tar.gz"
+    ],
+    "integrity": "sha256-JZ3fo73ceZz7gUicwPF9/fG9bRUF3aU8D0X/YNak+ac=",
+    "strip_prefix": "autoconf-2.73",
+    "overlay": {
+        "BUILD.bazel": "sha256-KyJXqS/20z9M7AAUdmR7y6xKMGQTD/t7ZrEhfK9c6lw=",
+        "MODULE.bazel": "sha256-YhATXWaRJVVxHsvRP0Nz16AhOpBbRrBB9K7+979Qzdo=",
+        "tests/BUILD.bazel": "sha256-ojclI4AgZfH/AWI/43SddiXKQQniVzRLo5Vs+U/QRx0=",
+        "tests/autoconf_smoke_test.sh": "sha256-F0Jqqa2rY0OI0auiKxpB25emEaiOxvPo+G2UhTeh/Go="
+    },
+    "patch_strip": 1,
+    "patches": {
+        "relocatable-tool-paths.patch": "sha256-RdC9FTC6sYhTnIUxrtOWCk05AdH9r+0sKjmQQxIRZqg="
+    }
+}

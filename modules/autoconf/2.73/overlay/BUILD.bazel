@@ -1,0 +1,371 @@
+"""GNU Autoconf.
+
+Unlike most of the GNU tools in this registry, Autoconf compiles nothing. It
+is a set of Perl scripts plus a tree of m4 macro files, and its entire
+upstream build is:
+
+  1. `sed` substitution of a small `@VAR@` set into `bin/*.in` and `lib/*.in`
+     (the `edit` rule in the upstream `Makefile.am`), and
+  2. an install-time file layout.
+
+This BUILD reproduces both, so no `configure` run is involved.
+
+Relocatability
+--------------
+Upstream bakes absolute install paths into the generated scripts:
+`@pkgdatadir@` for the macro/Perl-library tree, `@bindir@` for sibling tools,
+and `@M4@` for m4 itself. `patches/relocatable-tool-paths.patch` routes each
+of those through `File::Spec->rel2abs (..., dirname ($0))`, which leaves an
+absolute value untouched but anchors a relative one to the script's own
+directory. That lets this build substitute *script-relative* paths and have
+the runfiles tree work from wherever Bazel stages it.
+
+Every one of those paths keeps its upstream environment variable override,
+and the patch adds the two that upstream was missing (`AC_MACRODIR` for
+`autoscan`/`autoupdate`). So a consuming action can repoint any of them:
+
+    M4, AUTOM4TE, AUTOCONF, AUTOHEADER, AUTOMAKE, ACLOCAL, LIBTOOLIZE,
+    AUTOPOINT, MAKE, AC_MACRODIR, AUTOM4TE_CFG, autom4te_perllibdir,
+    autom4te_buildauxdir, trailer_m4
+
+The runfiles layout mirrors an installed tree:
+
+    <repo>/autoconf, autom4te, ...  the perl_binary launchers   (== @bindir@)
+    <repo>/bin/autoconf, ...        the substituted scripts
+    <repo>/bin/m4                   m4, copied from @m4//:m4    (== @M4@)
+    <repo>/lib/...                  macros, Perl modules, cfg   (== @pkgdatadir@)
+
+Because `@M4@` resolves into the runfiles tree, the tools do not need m4 on
+`PATH`. The patch also removes upstream's `grep`, `sed` and `/dev/null` uses
+from paths that run on every invocation, so nothing from the POSIX toolbox is
+needed either -- `autoconf` and `autoheader` have been checked to run with a
+`PATH` holding only `bash` and `env`, which is what the rules_perl launchers
+themselves need. (The `configure` scripts Autoconf *emits* are a different
+matter: those are ordinary shell and need the usual toolbox to run.)
+"""
+
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
+load("@rules_perl//perl:defs.bzl", "perl_binary")
+
+exports_files(["MODULE.bazel"])
+
+# ---------------------------------------------------------------------------
+# Package metadata
+# ---------------------------------------------------------------------------
+#
+# Upstream derives these from `configure.ac` (`AC_INIT`, `RELEASE_YEAR`).
+# They are spelled out here because there is no `configure` run to derive
+# them from. `_VERSION` tracks the upstream release, not the BCR module
+# version, so it stays `2.73` across any `.bcr.N` republish.
+
+_VERSION = "2.73"
+
+_RELEASE_YEAR = "2026"
+
+_PACKAGE_NAME = "GNU Autoconf"
+
+_PACKAGE_BUGREPORT = "bug-autoconf@gnu.org"
+
+_PACKAGE_URL = "https://www.gnu.org/software/autoconf/"
+
+# The Perl programs Autoconf installs into `bindir`.
+_TOOLS = [
+    "autoconf",
+    "autoheader",
+    "autom4te",
+    "autoreconf",
+    "autoscan",
+    "autoupdate",
+    "ifnames",
+]
+
+# Helper scripts `autoreconf --install` copies into a package that is missing
+# them. Upstream installs these to `$(pkgdatadir)/build-aux`, but ships them
+# at the top level of the tarball, so they have to be copied into place.
+_AUX_SCRIPTS = [
+    "config.guess",
+    "config.sub",
+    "install-sh",
+]
+
+# ---------------------------------------------------------------------------
+# Portability
+# ---------------------------------------------------------------------------
+#
+# `autom4te` drives m4 through the shell, relying on POSIX single-quoting and
+# `< /dev/null` (`xsystem ("$m4 ... > ...")` in `bin/autom4te.in`), neither of
+# which `cmd.exe` understands. Autoconf's own output is a POSIX shell script
+# besides, so Windows use means MSYS, which is outside what this module can
+# express. Mark the tools incompatible rather than ship something that fails
+# at run time.
+_INCOMPATIBLE_WITH_WINDOWS = select({
+    "@platforms//os:windows": ["@platforms//:incompatible"],
+    "//conditions:default": [],
+})
+
+# ---------------------------------------------------------------------------
+# Build flags
+# ---------------------------------------------------------------------------
+
+# Whether to ship the frozen (pre-parsed) m4 state files. Upstream builds and
+# installs these; `autom4te` treats them as optional and falls back to parsing
+# the `.m4` sources, producing byte-identical output either way.
+#
+# Turn this off if you override `M4` with an m4 whose frozen-state format does
+# not match the `@m4//:m4` used to write them -- m4 rejects a frozen file
+# written by a different format version.
+bool_flag(
+    name = "freeze",
+    build_setting_default = True,
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "freeze_enabled",
+    flag_values = {":freeze": "true"},
+)
+
+# ---------------------------------------------------------------------------
+# `@VAR@` substitutions
+# ---------------------------------------------------------------------------
+#
+# Mirrors the `edit` rule in the upstream `Makefile.am`. Paths are relative to
+# the *script's* directory (`<repo>/bin`), which the relocatability patch
+# resolves against `dirname ($0)`:
+#
+#   @pkgdatadir@ -> ../lib   @bindir@ -> ..   @M4@ -> m4  (i.e. bin/m4)
+#
+# No key here is a substring of another, so replacement order does not matter.
+_SUBSTITUTIONS = {
+    # Autoconf only reads `@AWK@` from its own test suite, never at run time.
+    # Substituted for completeness so no placeholder survives into the output.
+    "@AWK@": "awk",
+    "@M4@": "m4",
+    # `configure` detects these from the m4 it found. `@m4//:m4` is GNU m4
+    # 1.4.21, which supports both.
+    "@M4_DEBUGFILE@": "--debugfile",
+    "@M4_GNU@": "--gnu",
+    "@PACKAGE_BUGREPORT@": _PACKAGE_BUGREPORT,
+    "@PACKAGE_NAME@": _PACKAGE_NAME,
+    "@PACKAGE_STRING@": "{} {}".format(_PACKAGE_NAME, _VERSION),
+    "@PACKAGE_TARNAME@": "autoconf",
+    "@PACKAGE_URL@": _PACKAGE_URL,
+    "@PACKAGE_VERSION@": _VERSION,
+    # Shebang only. rules_perl invokes the toolchain interpreter explicitly,
+    # so this is never what actually runs the script.
+    "@PERL@": "/usr/bin/env perl",
+    # `configure` probes whether Perl's flock() works; it does on every
+    # platform this module supports.
+    "@PERL_FLOCK@": "1",
+    "@RELEASE_YEAR@": _RELEASE_YEAR,
+    # Only reached on DJGPP, where `$ENV{SHELL}` may name COMMAND.COM.
+    "@SHELL@": "/bin/sh",
+    "@VERSION@": _VERSION,
+    # Names the tools use to find each other, relative to `@bindir@`. These
+    # exist upstream for `--program-transform-name`; here they just name the
+    # perl_binary launchers.
+    "@autoconf-name@": "autoconf",
+    "@autoheader-name@": "autoheader",
+    "@autom4te-name@": "autom4te",
+    "@bindir@": "..",
+    "@configure_input@": "Generated by Bazel from $0.in; do not edit by hand.",
+    "@pkgdatadir@": "../lib",
+    "@prefix@": "..",
+}
+
+# ---------------------------------------------------------------------------
+# Generated scripts and data
+# ---------------------------------------------------------------------------
+
+[
+    expand_template(
+        name = "gen_bin_{}".format(tool),
+        out = "bin/{}".format(tool),
+        substitutions = _SUBSTITUTIONS,
+        template = "bin/{}.in".format(tool),
+    )
+    for tool in _TOOLS
+]
+
+# `autom4te`'s language definitions. The relocatability patch drops the
+# `--prepend-include '@pkgdatadir@'` lines this file used to carry (they were
+# the one place an absolute path reached `autom4te` as *data* rather than
+# code); `autom4te` now always searches `$pkgdatadir` itself.
+expand_template(
+    name = "gen_autom4te_cfg",
+    out = "lib/autom4te.cfg",
+    substitutions = _SUBSTITUTIONS,
+    template = "lib/autom4te.in",
+)
+
+# Defines `m4_PACKAGE_VERSION` and friends. `m4sugar.m4` pulls this in with
+# `m4_sinclude([autoconf_version.m4])` and hard-fails if the macros are
+# missing, so the name and location matter.
+expand_template(
+    name = "gen_autoconf_version_m4",
+    out = "lib/autoconf_version.m4",
+    substitutions = _SUBSTITUTIONS,
+    template = "lib/autoconf_version.in",
+)
+
+[
+    copy_file(
+        name = "copy_build_aux_{}".format(script.replace(".", "_")),
+        src = "build-aux/{}".format(script),
+        out = "lib/build-aux/{}".format(script),
+        is_executable = True,
+    )
+    for script in _AUX_SCRIPTS
+]
+
+# m4 is staged inside the runfiles tree so `@M4@` resolves without a PATH
+# lookup. `$ENV{M4}` still wins if a consumer sets it.
+copy_file(
+    name = "copy_m4",
+    src = "@m4",
+    out = "bin/m4",
+    is_executable = True,
+)
+
+# ---------------------------------------------------------------------------
+# pkgdatadir
+# ---------------------------------------------------------------------------
+
+# Everything that exists without having to run Autoconf against itself.
+filegroup(
+    name = "pkgdata_base",
+    srcs = glob([
+        "lib/Autom4te/*.pm",
+        "lib/autoconf/*.m4",
+        "lib/autotest/*.m4",
+        "lib/m4sugar/*.m4",
+    ]) + [
+        ":gen_autoconf_version_m4",
+        ":gen_autom4te_cfg",
+    ] + [
+        ":copy_build_aux_{}".format(script.replace(".", "_"))
+        for script in _AUX_SCRIPTS
+    ],
+)
+
+# ---------------------------------------------------------------------------
+# Bootstrap: the parts of pkgdatadir that Autoconf generates with itself
+# ---------------------------------------------------------------------------
+
+# A second copy of `autom4te` wired to `pkgdata_base` only. Depending on the
+# public `:autom4te` here would be circular, since its data includes the files
+# this stage produces.
+perl_binary(
+    name = "autom4te_bootstrap",
+    srcs = [":gen_bin_autom4te"],
+    data = [
+        ":copy_m4",
+        ":pkgdata_base",
+    ],
+    main = "bin/autom4te",
+    target_compatible_with = _INCOMPATIBLE_WITH_WINDOWS,
+)
+
+# `autoscan`'s macro lookup table. `autoscan` resolves this with `find_file`
+# without the `?` that marks a file optional, so it is a hard requirement
+# rather than an optimization. Port of the `lib/autoscan/autoscan.list` rule
+# in upstream's `lib/local.mk`: emit the comment header from `autoscan.pre`,
+# then merge its body with the `AN_OUTPUT` traces and sort.
+genrule(
+    name = "gen_autoscan_list",
+    srcs = ["lib/autoscan/autoscan.pre"],
+    outs = ["lib/autoscan/autoscan.list"],
+    cmd = """\
+set -eu
+pre=$(location lib/autoscan/autoscan.pre)
+echo '# Automatically Generated: do not edit this file' > $@
+sed '/^[#]/!q' "$$pre" >> $@
+{
+  sed -n '/^[^#]/p' "$$pre"
+  $(execpath :autom4te_bootstrap) --cache '' -M \
+    --language autoconf-without-aclocal-m4 \
+    --trace 'AN_OUTPUT:$$1: $$2\t\t$$3'
+} | LC_ALL=C sort >> $@
+""",
+    target_compatible_with = _INCOMPATIBLE_WITH_WINDOWS,
+    tools = [":autom4te_bootstrap"],
+)
+
+# Frozen m4 state, keyed by the `--language` that produces it. Paths match
+# where `autom4te.cfg` looks for them under `$pkgdatadir`.
+_FROZEN_FILES = {
+    "lib/autoconf/autoconf.m4f": "autoconf-without-aclocal-m4",
+    "lib/autotest/autotest.m4f": "autotest",
+    "lib/m4sugar/m4sh.m4f": "m4sh",
+    "lib/m4sugar/m4sugar.m4f": "m4sugar",
+}
+
+[
+    genrule(
+        name = "gen_{}".format(out.rpartition("/")[2].replace(".", "_")),
+        outs = [out],
+        # `--cache ''` keeps autom4te from dropping an `autom4te.cache`
+        # directory into the execroot.
+        cmd = "$(execpath :autom4te_bootstrap) --cache '' --language {} --freeze --output $@".format(language),
+        target_compatible_with = _INCOMPATIBLE_WITH_WINDOWS,
+        tools = [":autom4te_bootstrap"],
+    )
+    for out, language in _FROZEN_FILES.items()
+]
+
+filegroup(
+    name = "pkgdata",
+    srcs = [
+        ":gen_autoscan_list",
+        ":pkgdata_base",
+    ] + select({
+        ":freeze_enabled": [
+            ":gen_{}".format(out.rpartition("/")[2].replace(".", "_"))
+            for out in _FROZEN_FILES
+        ],
+        "//conditions:default": [],
+    }),
+    visibility = ["//visibility:public"],
+)
+
+# ---------------------------------------------------------------------------
+# The tools
+# ---------------------------------------------------------------------------
+
+# Which sibling launchers each tool shells out to. `autoreconf` also drives
+# `automake`, `aclocal`, `libtoolize`, `autopoint` and `make`; those live
+# outside this module and default to a PATH lookup, so a consumer that wants
+# them hermetic sets `AUTOMAKE`, `ACLOCAL`, ... in the action environment.
+_TOOL_DEPS = {
+    "autoconf": ["autom4te"],
+    "autoheader": ["autom4te"],
+    "autom4te": [],
+    "autoreconf": [
+        "autoconf",
+        "autoheader",
+        "autom4te",
+    ],
+    "autoscan": ["autom4te"],
+    "autoupdate": [
+        "autoconf",
+        "autom4te",
+    ],
+    "ifnames": [],
+}
+
+[
+    perl_binary(
+        name = tool,
+        srcs = [":gen_bin_{}".format(tool)],
+        data = [
+            ":copy_m4",
+            ":pkgdata",
+        ] + [":{}".format(dep) for dep in deps],
+        main = "bin/{}".format(tool),
+        target_compatible_with = _INCOMPATIBLE_WITH_WINDOWS,
+        visibility = ["//visibility:public"],
+    )
+    for tool, deps in _TOOL_DEPS.items()
+]

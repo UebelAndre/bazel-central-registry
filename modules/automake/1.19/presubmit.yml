@@ -1,0 +1,23 @@
+matrix:
+  # No Windows. `aclocal` and `automake` read `autom4te` through a shell
+  # pipeline and the Makefiles they emit are for a POSIX `make`, so every
+  # target in the module -- and in `@autoconf`, which it depends on -- is
+  # `target_compatible_with` not-Windows.
+  platform:
+  - debian11
+  - ubuntu2004
+  - ubuntu2004_arm64
+  - ubuntu2204
+  - ubuntu2404
+  - macos
+  - macos_arm64
+  bazel: [7.x, 8.x, 9.x]
+tasks:
+  verify_targets:
+    name: Verify build targets
+    platform: ${{ platform }}
+    bazel: ${{ bazel }}
+    build_targets:
+    - '@automake//...'
+    test_targets:
+    - '@automake//...'

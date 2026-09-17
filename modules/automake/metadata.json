@@ -1,0 +1,20 @@
+{
+    "homepage": "https://www.gnu.org/software/automake/",
+    "maintainers": [
+        {
+            "email": "26427366+UebelAndre@users.noreply.github.com",
+            "github": "UebelAndre",
+            "github_user_id": 26427366,
+            "name": "UebelAndre"
+        }
+    ],
+    "repository": [
+        "https://ftp.gnu.org/gnu/automake/",
+        "https://ftpmirror.gnu.org/gnu/automake/",
+        "https://mirrors.kernel.org/gnu/automake/"
+    ],
+    "versions": [
+        "1.19"
+    ],
+    "yanked_versions": {}
+}

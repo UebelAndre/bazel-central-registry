@@ -1,0 +1,264 @@
+"""GNU Automake.
+
+Like Autoconf, Automake compiles nothing: it is two Perl programs plus a tree
+of Makefile fragments, m4 macros and helper scripts. Its upstream build is
+`sed` substitution of a small `@VAR@` set (the `do_subst` rule in the upstream
+`Makefile.am`) followed by an install-time file layout, so no `configure` run
+is involved here.
+
+Layout
+------
+The one wrinkle is that upstream's install paths are composed rather than
+substituted whole -- `$(datadir)/$(PACKAGE)-$(APIVERSION)` -- which pins the
+directory names to the package name and version. `configure` also AC_SUBSTs
+each of those directories as a single variable (`pkgvdatadir`,
+`automake_acdir`, `system_acdir`), and `patches/relocatable-tool-paths.patch`
+switches the scripts over to those. That is a no-op for `make install`, and it
+lets this build point them at the tarball's own directories, so nothing has to
+be copied into an install-shaped tree:
+
+    <repo>/automake, aclocal   the perl_binary launchers
+    <repo>/bin/automake, ...   the substituted scripts
+    <repo>/lib                 == @pkgvdatadir@ (Automake/*.pm, am/*.am, aux scripts)
+    <repo>/m4                  == @automake_acdir@
+    <repo>/m4/acdir            == @system_acdir@
+
+Relocatability
+--------------
+The same patch resolves each of those through
+`File::Spec->rel2abs (..., dirname ($0))`, which returns an absolute path
+unchanged but anchors a relative one to the script's own directory. This build
+substitutes script-relative paths, so the runfiles tree works from wherever
+Bazel stages it.
+
+`@am_AUTOCONF@` and `@am_AUTOM4TE@` are handled the same way except that a
+bare program name -- what a normal `make install` substitutes -- is still left
+to a `PATH` lookup. Here they are set to the `@autoconf` launchers' runfiles
+paths, so the tools are hermetic out of the box; `$AUTOCONF` and `$AUTOM4TE`
+still win when set.
+
+Overriding from an action
+-------------------------
+Every external program the two scripts invoke keeps an environment-variable
+override:
+
+    AUTOCONF, AUTOM4TE, AUTOMAKE_LIBDIR, ACLOCAL_PATH, AUTOMAKE_UNINSTALLED
+
+The patch also replaces the two `cp` subprocesses (`aclocal --install` and
+`automake --add-missing`) with `File::Copy`, so neither program needs a POSIX
+toolbox on `PATH`.
+"""
+
+load("@bazel_skylib//rules:expand_template.bzl", "expand_template")
+load("@rules_perl//perl:defs.bzl", "perl_binary")
+
+exports_files(["MODULE.bazel"])
+
+# ---------------------------------------------------------------------------
+# Package metadata
+# ---------------------------------------------------------------------------
+#
+# Upstream derives these from `configure.ac` (`AC_INIT`, `APIVERSION`,
+# `RELEASE_YEAR`). They are spelled out here because there is no `configure`
+# run to derive them from. `_VERSION` tracks the upstream release, not the BCR
+# module version, so it stays `1.19` across any `.bcr.N` republish.
+
+_VERSION = "1.19"
+
+# `configure.ac` keeps this separate from `_VERSION` so that a bugfix release
+# can share a macro directory with the release it fixes. Automake 1.19 sets
+# them to the same string.
+_APIVERSION = "1.19"
+
+_RELEASE_YEAR = "2026"
+
+_PACKAGE_BUGREPORT = "bug-automake@gnu.org"
+
+_PACKAGE_URL = "https://www.gnu.org/software/automake/"
+
+# The Perl programs Automake installs into `bindir`.
+_TOOLS = [
+    "aclocal",
+    "automake",
+]
+
+# `lib/local.mk` `dist_script_DATA`: the helper scripts `automake --add-missing`
+# copies into a package. They have to stay executable, which is why the patch
+# carries the mode over when it copies them.
+_AUX_SCRIPTS = [
+    "ar-lib",
+    "compile",
+    "config.guess",
+    "config.sub",
+    "depcomp",
+    "install-sh",
+    "mdate-sh",
+    "missing",
+    "mkinstalldirs",
+    "py-compile",
+    "tap-driver.sh",
+    "test-driver",
+    "ylwrap",
+]
+
+# `lib/local.mk` `dist_pkgvdata_DATA`: boilerplate `--add-missing` installs.
+_AUX_DATA = [
+    "COPYING",
+    "INSTALL",
+    "texinfo.tex",
+]
+
+# ---------------------------------------------------------------------------
+# Portability
+# ---------------------------------------------------------------------------
+#
+# `aclocal` and `automake` read `autom4te` through a shell pipeline
+# (`XFile ("$traces $filename |")`), and the Makefiles they emit are for a
+# POSIX `make`. Windows use means MSYS, which is outside what this module can
+# express; `@autoconf`, which these depend on, is marked the same way.
+_INCOMPATIBLE_WITH_WINDOWS = select({
+    "@platforms//os:windows": ["@platforms//:incompatible"],
+    "//conditions:default": [],
+})
+
+# ---------------------------------------------------------------------------
+# `@VAR@` substitutions
+# ---------------------------------------------------------------------------
+#
+# Mirrors `do_subst` in the upstream `Makefile.am`, minus the keys the patch
+# removed. Paths are relative to the *script's* directory (`<repo>/bin`),
+# which the relocatability patch resolves against `dirname ($0)`.
+#
+# Deliberately not listed: `@am__isrc@`, `@U@`, `@MAINT@`, `@SET-MAKE@`,
+# `@FOO@`, `@substitution@` and `@substitutions@` all appear in `automake.in`
+# as prose or as text Automake emits into someone else's Makefile. Upstream
+# goes out of its way to keep `config.status` off them; listing them here
+# would corrupt Automake's output.
+#
+# No key below is a substring of another, so replacement order does not
+# matter. (`@PACKAGE@` is not a prefix of `@PACKAGE_URL@`: the trailing `@`
+# does not match.)
+_SUBSTITUTIONS = {
+    "@APIVERSION@": _APIVERSION,
+    "@PACKAGE@": "automake",
+    "@PACKAGE_BUGREPORT@": _PACKAGE_BUGREPORT,
+    "@PACKAGE_URL@": _PACKAGE_URL,
+    # Shebang only. rules_perl invokes the toolchain interpreter explicitly,
+    # so this is never what actually runs the script.
+    "@PERL@": "/usr/bin/env perl",
+    "@RELEASE_YEAR@": _RELEASE_YEAR,
+    # Only reached on DJGPP, where `$ENV{SHELL}` may name COMMAND.COM.
+    "@SHELL@": "/bin/sh",
+    "@VERSION@": _VERSION,
+    "@automake_acdir@": "../m4",
+    "@configure_input@": "Generated by Bazel; do not edit by hand.",
+    "@pkgvdatadir@": "../lib",
+    "@system_acdir@": "../m4/acdir",
+}
+
+# ---------------------------------------------------------------------------
+# Generated scripts
+# ---------------------------------------------------------------------------
+#
+# Two passes, because `@am_AUTOCONF@` and `@am_AUTOM4TE@` name files in
+# another repository and only `$(rlocationpath)` knows where those land.
+# `dirname ($0)` is `<runfiles>/<this repo>/bin`, so `../../` is the runfiles
+# root that an rlocationpath is relative to.
+
+[
+    expand_template(
+        name = "gen_bin_{}_paths".format(tool),
+        out = "bin/{}.paths".format(tool),
+        substitutions = _SUBSTITUTIONS,
+        template = "bin/{}.in".format(tool),
+    )
+    for tool in _TOOLS
+]
+
+_AUTOCONF_TOOL = {
+    "aclocal": "autom4te",
+    "automake": "autoconf",
+}
+
+[
+    genrule(
+        name = "gen_bin_{}".format(tool),
+        srcs = [
+            ":gen_bin_{}_paths".format(tool),
+            "@autoconf//:{}".format(dep),
+        ],
+        outs = ["bin/{}".format(tool)],
+        cmd = "sed -e 's|@am_{upper}@|../../$(rlocationpath @autoconf//:{dep})|g' $(execpath :gen_bin_{tool}_paths) > $@".format(
+            dep = dep,
+            tool = tool,
+            upper = dep.upper(),
+        ),
+        target_compatible_with = _INCOMPATIBLE_WITH_WINDOWS,
+    )
+    for tool, dep in _AUTOCONF_TOOL.items()
+]
+
+# Generated rather than shipped, unlike Autoconf's equivalent. Holds
+# `$APIVERSION`, `$VERSION` and `$libdir`, so every other Perl module in
+# `lib/Automake` depends on it.
+expand_template(
+    name = "gen_automake_config",
+    out = "lib/Automake/Config.pm",
+    substitutions = _SUBSTITUTIONS,
+    template = "lib/Automake/Config.in",
+)
+
+# ---------------------------------------------------------------------------
+# Data
+# ---------------------------------------------------------------------------
+
+# `@pkgvdatadir@`: the Perl library, the Makefile fragments `automake` splices
+# into its output, and the helper scripts `--add-missing` installs.
+filegroup(
+    name = "pkgvdata",
+    srcs = glob([
+        "lib/Automake/*.pm",
+        "lib/am/*.am",
+    ]) + [
+        "lib/{}".format(f)
+        for f in _AUX_SCRIPTS + _AUX_DATA
+    ] + [":gen_automake_config"],
+    visibility = ["//visibility:public"],
+)
+
+# `@automake_acdir@` and `@system_acdir@`: the macros `aclocal` scans, and the
+# directory a distro drops third-party macros into. `m4/acdir` holds only a
+# README upstream, but `aclocal --system-acdir` and `$ACLOCAL_PATH` expect the
+# directory to exist.
+filegroup(
+    name = "aclocal_macros",
+    srcs = glob([
+        "m4/*.m4",
+        "m4/internal/*.m4",
+    ]) + ["m4/acdir/README"],
+    visibility = ["//visibility:public"],
+)
+
+# ---------------------------------------------------------------------------
+# The tools
+# ---------------------------------------------------------------------------
+
+# `automake` shells out to `autoconf` for traces and `aclocal` to `autom4te`;
+# both are reached through the runfiles paths baked in above. `aclocal` is not
+# in `automake`'s data: upstream `automake` never runs it (that is
+# `autoreconf`'s job).
+[
+    perl_binary(
+        name = tool,
+        srcs = [":gen_bin_{}".format(tool)],
+        data = [
+            ":aclocal_macros",
+            ":pkgvdata",
+            "@autoconf//:{}".format(dep),
+        ],
+        main = "bin/{}".format(tool),
+        target_compatible_with = _INCOMPATIBLE_WITH_WINDOWS,
+        visibility = ["//visibility:public"],
+    )
+    for tool, dep in _AUTOCONF_TOOL.items()
+]

@@ -1,0 +1,18 @@
+{
+    "url": "https://ftp.gnu.org/gnu/automake/automake-1.19.tar.gz",
+    "mirror_urls": [
+        "https://mirrors.kernel.org/gnu/automake/automake-1.19.tar.gz"
+    ],
+    "integrity": "sha256-eeix96ln6Hzoqd7Xa+5/eT0M4YhqsgAv6xsFEPV4t1o=",
+    "strip_prefix": "automake-1.19",
+    "overlay": {
+        "BUILD.bazel": "sha256-LaseU82MY3HP87nMXDHN6wCmRoIRt2UbkaunU7I85L0=",
+        "MODULE.bazel": "sha256-1XyzTLsBY6fRJmOJvVNGYcQ3bLiyLglxgREXNOhqD7A=",
+        "tests/BUILD.bazel": "sha256-o/ForLuKowxu7mmysQmN6ynK1vqngRoJw9GMIrGrenc=",
+        "tests/automake_smoke_test.sh": "sha256-IXqftgiu4czOOAvO6HzFh4D7e3+bkjY+WxGezx83yI0="
+    },
+    "patch_strip": 1,
+    "patches": {
+        "relocatable-tool-paths.patch": "sha256-YNG74YE/o1g9+hdYUTlwK8hZ0iNqblhfIXodr9j2Crg="
+    }
+}

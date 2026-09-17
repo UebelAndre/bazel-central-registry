@@ -1,0 +1,309 @@
+diff -uNr ac-orig/bin/autoconf.in ac-work/bin/autoconf.in
+--- ac-orig/bin/autoconf.in	2026-09-17 13:03:08.321028939 -0700
++++ ac-work/bin/autoconf.in	2026-09-17 13:07:38.631265570 -0700
+@@ -29,7 +29,15 @@
+ 
+ BEGIN
+ {
+-  my $pkgdatadir = $ENV{'autom4te_perllibdir'} || '@pkgdatadir@';
++  require File::Basename;
++  require File::Spec;
++
++  # Resolve the data directory relative to this script unless overridden.
++  # A `make install` tree substitutes an absolute path, which rel2abs returns
++  # unchanged; Bazel substitutes a script-relative path so that the runfiles
++  # tree can be staged anywhere.
++  my $pkgdatadir = $ENV{'autom4te_perllibdir'}
++    || File::Spec->rel2abs ('@pkgdatadir@', File::Basename::dirname ($0));
+   unshift @INC, $pkgdatadir;
+ 
+   # Override SHELL.  On DJGPP SHELL may not be set to a shell
+@@ -44,8 +52,10 @@
+ use Autom4te::General;
+ 
+ # Lib files.
+-my $autom4te = $ENV{'AUTOM4TE'} || '@bindir@/@autom4te-name@';
+-my $trailer_m4 = $ENV{'trailer_m4'} || '@pkgdatadir@/autoconf/trailer.m4';
++my $autom4te = $ENV{'AUTOM4TE'}
++  || File::Spec->rel2abs ('@bindir@/@autom4te-name@', File::Basename::dirname ($0));
++my $trailer_m4 = $ENV{'trailer_m4'}
++  || File::Spec->rel2abs ('@pkgdatadir@/autoconf/trailer.m4', File::Basename::dirname ($0));
+ 
+ # $HELP
+ # -----
+diff -uNr ac-orig/bin/autoheader.in ac-work/bin/autoheader.in
+--- ac-orig/bin/autoheader.in	2026-09-17 13:03:08.321111135 -0700
++++ ac-work/bin/autoheader.in	2026-09-17 13:07:38.631771889 -0700
+@@ -32,7 +32,15 @@
+ 
+ BEGIN
+ {
+-  my $pkgdatadir = $ENV{'autom4te_perllibdir'} || '@pkgdatadir@';
++  require File::Basename;
++  require File::Spec;
++
++  # Resolve the data directory relative to this script unless overridden.
++  # A `make install` tree substitutes an absolute path, which rel2abs returns
++  # unchanged; Bazel substitutes a script-relative path so that the runfiles
++  # tree can be staged anywhere.
++  my $pkgdatadir = $ENV{'autom4te_perllibdir'}
++    || File::Spec->rel2abs ('@pkgdatadir@', File::Basename::dirname ($0));
+   unshift @INC, "$pkgdatadir";
+ 
+   # Override SHELL.  On DJGPP SHELL may not be set to a shell
+@@ -54,7 +62,8 @@
+ our ($config_h, %symbol, %verbatim);
+ 
+ # Lib files.
+-my $autom4te = $ENV{'AUTOM4TE'} || '@bindir@/@autom4te-name@';
++my $autom4te = $ENV{'AUTOM4TE'}
++  || File::Spec->rel2abs ('@bindir@/@autom4te-name@', File::Basename::dirname ($0));
+ my $config_h_in;
+ my @prepend_include;
+ my @include;
+@@ -198,7 +207,19 @@
+ }
+ 
+ local (%verbatim, %symbol);
+-debug "$me: 'do'ing $tmp/traces.pl:\n" . `sed 's/^/| /' $quoted_tmp/traces.pl`;
++# Upstream builds this message unconditionally, shelling out to `sed` on
++# every run even though `debug` discards it unless --debug --verbose was
++# given.  Read the file in Perl, and only when it will actually be shown.
++if ($verbose && $debug)
++  {
++    my $traces_text = '';
++    if (open (my $traces_fh, '<', "$tmp/traces.pl"))
++      {
++        $traces_text = join ('', map { "| $_" } <$traces_fh>);
++        close $traces_fh;
++      }
++    debug "$me: 'do'ing $tmp/traces.pl:\n$traces_text";
++  }
+ do "$tmp/traces.pl";
+ warn "couldn't parse $tmp/traces.pl: $@" if $@;
+ unless ($config_h)
+diff -uNr ac-orig/bin/autom4te.in ac-work/bin/autom4te.in
+--- ac-orig/bin/autom4te.in	2026-09-17 13:03:08.321153678 -0700
++++ ac-work/bin/autom4te.in	2026-09-17 13:07:38.631713698 -0700
+@@ -28,7 +28,15 @@
+ 
+ BEGIN
+ {
+-  my $pkgdatadir = $ENV{'autom4te_perllibdir'} || '@pkgdatadir@';
++  require File::Basename;
++  require File::Spec;
++
++  # Resolve the data directory relative to this script unless overridden.
++  # A `make install` tree substitutes an absolute path, which rel2abs returns
++  # unchanged; Bazel substitutes a script-relative path so that the runfiles
++  # tree can be staged anywhere.
++  my $pkgdatadir = $ENV{'autom4te_perllibdir'}
++    || File::Spec->rel2abs ('@pkgdatadir@', File::Basename::dirname ($0));
+   unshift @INC, $pkgdatadir;
+ 
+   # Override SHELL.  On DJGPP SHELL may not be set to a shell
+@@ -48,7 +56,8 @@
+ use Autom4te::XFile;
+ 
+ # Data directory.
+-my $pkgdatadir = $ENV{'AC_MACRODIR'} || '@pkgdatadir@';
++my $pkgdatadir = $ENV{'AC_MACRODIR'}
++  || File::Spec->rel2abs ('@pkgdatadir@', File::Basename::dirname ($0));
+ 
+ # $LANGUAGE{LANGUAGE} -- Automatic options for LANGUAGE.
+ my %language;
+@@ -91,10 +100,16 @@
+ my $freeze = 0;
+ 
+ # $M4.
+-my $m4 = $ENV{"M4"} || '@M4@';
++my $m4 = $ENV{"M4"}
++  || File::Spec->rel2abs ('@M4@', File::Basename::dirname ($0));
+ # Some non-GNU m4's don't reject the --help option, so give them /dev/null.
++# Upstream pipes `m4 --help` through `grep`.  Matching in Perl instead
++# keeps `grep` and /dev/null off the list of things that must exist:
++# build actions routinely run with a minimal PATH.  `$m4` may carry
++# options, so the command itself still goes through the shell.
++my $m4_help = `$m4 --help 2>&1`;
+ fatal "need GNU m4 1.4 or later: $m4"
+-  if system "$m4 --help </dev/null 2>&1 | grep reload-state >/dev/null";
++  unless defined $m4_help && $m4_help =~ /reload-state/;
+ 
+ # Set some high recursion limit as the default limit, 250, has already
+ # been hit with AC_OUTPUT.  Don't override the user's choice.
+@@ -448,7 +463,8 @@
+   # a pain since it introduces a useless difference in the path which
+   # invalidates the cache.  And strip '.' which is implicit and always
+   # first.
+-  @include = grep { !/^\.$/ } uniq (reverse(@prepend_include), @include);
++  @include = grep { !/^\.$/ }
++    uniq (reverse(@prepend_include), $pkgdatadir, @include);
+ 
+   # Convert @trace to %trace, and work around the M4 builtins tracing
+   # problem.
+diff -uNr ac-orig/bin/autoreconf.in ac-work/bin/autoreconf.in
+--- ac-orig/bin/autoreconf.in	2026-09-17 13:03:08.321211676 -0700
++++ ac-work/bin/autoreconf.in	2026-09-17 13:07:38.631582298 -0700
+@@ -32,7 +32,15 @@
+ my $buildauxdir;
+ BEGIN
+ {
+-  my $pkgdatadir = $ENV{'autom4te_perllibdir'} || '@pkgdatadir@';
++  require File::Basename;
++  require File::Spec;
++
++  # Resolve the data directory relative to this script unless overridden.
++  # A `make install` tree substitutes an absolute path, which rel2abs returns
++  # unchanged; Bazel substitutes a script-relative path so that the runfiles
++  # tree can be staged anywhere.
++  my $pkgdatadir = $ENV{'autom4te_perllibdir'}
++    || File::Spec->rel2abs ('@pkgdatadir@', File::Basename::dirname ($0));
+   unshift @INC, $pkgdatadir;
+ 
+   $buildauxdir = $ENV{'autom4te_buildauxdir'} || $pkgdatadir . '/build-aux';
+@@ -125,9 +133,12 @@
+ # Programs we can run.
+ # For each program, the value is the actual command to use, with options.
+ my %C = (
+-  autoconf    => $ENV{'AUTOCONF'}    || '@bindir@/@autoconf-name@',
+-  autoheader  => $ENV{'AUTOHEADER'}  || '@bindir@/@autoheader-name@',
+-  autom4te    => $ENV{'AUTOM4TE'}    || '@bindir@/@autom4te-name@',
++  autoconf    => $ENV{'AUTOCONF'}
++    || File::Spec->rel2abs ('@bindir@/@autoconf-name@', File::Basename::dirname ($0)),
++  autoheader  => $ENV{'AUTOHEADER'}
++    || File::Spec->rel2abs ('@bindir@/@autoheader-name@', File::Basename::dirname ($0)),
++  autom4te    => $ENV{'AUTOM4TE'}
++    || File::Spec->rel2abs ('@bindir@/@autom4te-name@', File::Basename::dirname ($0)),
+   automake    => $ENV{'AUTOMAKE'}    || 'automake',
+   aclocal     => $ENV{'ACLOCAL'}     || 'aclocal',
+   libtoolize  => $ENV{'LIBTOOLIZE'}  || 'libtoolize',
+diff -uNr ac-orig/bin/autoscan.in ac-work/bin/autoscan.in
+--- ac-orig/bin/autoscan.in	2026-09-17 13:03:08.321254323 -0700
++++ ac-work/bin/autoscan.in	2026-09-17 13:07:38.631383700 -0700
+@@ -30,7 +30,15 @@
+ 
+ BEGIN
+ {
+-  my $pkgdatadir = $ENV{'autom4te_perllibdir'} || '@pkgdatadir@';
++  require File::Basename;
++  require File::Spec;
++
++  # Resolve the data directory relative to this script unless overridden.
++  # A `make install` tree substitutes an absolute path, which rel2abs returns
++  # unchanged; Bazel substitutes a script-relative path so that the runfiles
++  # tree can be staged anywhere.
++  my $pkgdatadir = $ENV{'autom4te_perllibdir'}
++    || File::Spec->rel2abs ('@pkgdatadir@', File::Basename::dirname ($0));
+   unshift @INC, $pkgdatadir;
+ 
+   # Override SHELL.  On DJGPP SHELL may not be set to a shell
+@@ -95,10 +103,12 @@
+ my $log;
+ 
+ # Autoconf and lib files.
+-my $autom4te = $ENV{'AUTOM4TE'} || '@bindir@/@autom4te-name@';
++my $autom4te = $ENV{'AUTOM4TE'}
++  || File::Spec->rel2abs ('@bindir@/@autom4te-name@', File::Basename::dirname ($0));
+ my $autoconf = "$autom4te --language=autoconf";
+ my @prepend_include;
+-my @include = ('@pkgdatadir@');
++my @include = ($ENV{'AC_MACRODIR'}
++                || File::Spec->rel2abs ('@pkgdatadir@', File::Basename::dirname ($0)));
+ 
+ # $help
+ # -----
+diff -uNr ac-orig/bin/autoupdate.in ac-work/bin/autoupdate.in
+--- ac-orig/bin/autoupdate.in	2026-09-17 13:03:08.321297682 -0700
++++ ac-work/bin/autoupdate.in	2026-09-17 13:07:38.631495524 -0700
+@@ -31,7 +31,15 @@
+ 
+ BEGIN
+ {
+-  my $pkgdatadir = $ENV{'autom4te_perllibdir'} || '@pkgdatadir@';
++  require File::Basename;
++  require File::Spec;
++
++  # Resolve the data directory relative to this script unless overridden.
++  # A `make install` tree substitutes an absolute path, which rel2abs returns
++  # unchanged; Bazel substitutes a script-relative path so that the runfiles
++  # tree can be staged anywhere.
++  my $pkgdatadir = $ENV{'autom4te_perllibdir'}
++    || File::Spec->rel2abs ('@pkgdatadir@', File::Basename::dirname ($0));
+   unshift @INC, $pkgdatadir;
+ 
+   # Override SHELL.  On DJGPP SHELL may not be set to a shell
+@@ -51,14 +59,17 @@
+ use Autom4te::XFile;
+ 
+ # Lib files.
+-my $autom4te = $ENV{'AUTOM4TE'} || '@bindir@/@autom4te-name@';
++my $autom4te = $ENV{'AUTOM4TE'}
++  || File::Spec->rel2abs ('@bindir@/@autom4te-name@', File::Basename::dirname ($0));
+ my $autoconf = "$autom4te --language=autoconf";
+ # We need to find m4sugar.
+ my @prepend_include;
+-my @include = ('@pkgdatadir@');
++my @include = ($ENV{'AC_MACRODIR'}
++                || File::Spec->rel2abs ('@pkgdatadir@', File::Basename::dirname ($0)));
+ my $force = 0;
+ # m4.
+-my $m4 = $ENV{"M4"} || '@M4@';
++my $m4 = $ENV{"M4"}
++  || File::Spec->rel2abs ('@M4@', File::Basename::dirname ($0));
+ 
+ 
+ # $HELP
+diff -uNr ac-orig/bin/ifnames.in ac-work/bin/ifnames.in
+--- ac-orig/bin/ifnames.in	2026-09-17 13:03:08.321334289 -0700
++++ ac-work/bin/ifnames.in	2026-09-17 13:07:38.631121755 -0700
+@@ -35,7 +35,15 @@
+ 
+ BEGIN
+ {
+-  my $pkgdatadir = $ENV{'autom4te_perllibdir'} || '@pkgdatadir@';
++  require File::Basename;
++  require File::Spec;
++
++  # Resolve the data directory relative to this script unless overridden.
++  # A `make install` tree substitutes an absolute path, which rel2abs returns
++  # unchanged; Bazel substitutes a script-relative path so that the runfiles
++  # tree can be staged anywhere.
++  my $pkgdatadir = $ENV{'autom4te_perllibdir'}
++    || File::Spec->rel2abs ('@pkgdatadir@', File::Basename::dirname ($0));
+   unshift @INC, $pkgdatadir;
+ 
+   # Override SHELL.  On DJGPP SHELL may not be set to a shell
+diff -uNr ac-orig/lib/autom4te.in ac-work/lib/autom4te.in
+--- ac-orig/lib/autom4te.in	2026-09-17 13:03:08.334535251 -0700
++++ ac-work/lib/autom4te.in	2026-09-17 13:07:38.631649662 -0700
+@@ -124,7 +124,6 @@
+ # This intermediate language is used by aclocal to build aclocal.m4.
+ 
+ begin-language: "Autoconf-without-aclocal-m4"
+-args: --prepend-include '@pkgdatadir@'
+ args: --cache=autom4te.cache
+ args: autoconf/autoconf.m4f
+ args: acsite.m4?
+@@ -151,7 +150,6 @@
+ ## -------- ##
+ 
+ begin-language: "Autotest"
+-args: --prepend-include '@pkgdatadir@'
+ args: autotest/autotest.m4f
+ args: package.m4?
+ args: local.at?
+@@ -165,7 +163,6 @@
+ ## ---- ##
+ 
+ begin-language: "M4sh"
+-args: --prepend-include '@pkgdatadir@'
+ args: m4sugar/m4sh.m4f
+ args: --mode 777
+ args: --language M4sugar
+@@ -177,6 +174,5 @@
+ ## ------- ##
+ 
+ begin-language: "M4sugar"
+-args: --prepend-include '@pkgdatadir@'
+ args: m4sugar/m4sugar.m4f
+ end-language: "M4sugar"

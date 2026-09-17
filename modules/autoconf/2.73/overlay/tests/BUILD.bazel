@@ -1,0 +1,44 @@
+"""Smoke tests for the programs this module builds."""
+
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+_TOOLS = [
+    "autoconf",
+    "autoheader",
+    "autom4te",
+    "autoreconf",
+    "autoscan",
+    "autoupdate",
+    "ifnames",
+]
+
+# An overlay file arrives over `ctx.download`, which does not set the execute
+# bit, and `sh_test` refuses a source that is not executable.
+copy_file(
+    name = "autoconf_smoke_test_script",
+    src = "autoconf_smoke_test.sh",
+    out = "autoconf_smoke_test_exe.sh",
+    is_executable = True,
+)
+
+# `$(rlocationpath)` rather than `$(rootpath)` because Windows runfiles are a
+# manifest, not a symlink tree, so the relative path is not on disk there.
+sh_test(
+    name = "autoconf_smoke_test",
+    size = "small",
+    srcs = [":autoconf_smoke_test_script"],
+    data = ["//:{}".format(tool) for tool in _TOOLS],
+    env = {
+        "{}_RLOCATIONPATH".format(tool.upper()): "$(rlocationpath //:{})".format(tool)
+        for tool in _TOOLS
+    },
+    # The `configure` script the test generates is the point of Autoconf, and
+    # running it needs the POSIX toolbox (sed, grep, tr, expr, ...). Bazel's
+    # default test PATH does not name every directory a host keeps those in.
+    # The Autoconf tools themselves need nothing from PATH -- they reach m4
+    # through the runfiles tree -- so this loosens the generated script's
+    # environment, not theirs.
+    env_inherit = ["PATH"],
+    deps = ["@rules_shell//shell/runfiles"],
+)

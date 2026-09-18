@@ -1,0 +1,17 @@
+{
+    "url": "https://ftp.gnu.org/gnu/grep/grep-3.12.tar.gz",
+    "mirror_urls": [
+        "https://ftpmirror.gnu.org/gnu/grep/grep-3.12.tar.gz",
+        "https://mirrors.kernel.org/gnu/grep/grep-3.12.tar.gz"
+    ],
+    "integrity": "sha256-ut2lRt/Eudl+mS4sNfO1x/IFIv/L4vAboenNy+dkTNw=",
+    "strip_prefix": "grep-3.12",
+    "overlay": {
+        "BUILD.bazel": "sha256-1ivvhM1pq12JRN3p8qHS9iE52+x6uk1sWsVhAeglRfk=",
+        "MODULE.bazel": "sha256-g0agKk55oBMEu0/Bx269gSue6gIno3BrbME10HqvOp0=",
+        "tests/BUILD.bazel": "sha256-51vsbmgP1Q2+69iK4QQLUXAm7Jm/OEyVqBSggumIL2M=",
+        "tests/grep_smoke_test.cc": "sha256-YTAuloQmWNMXYNDLpybVyXmHNS1+u49bOCfuMIGjijQ=",
+        "tests/grep_test.bzl": "sha256-BElj/33sKAhjErzy+9/Exl7u957pbN8QcqLIYC2LWH0=",
+        "tests/run_grep_test.cc": "sha256-n1lXNJtJQuZ4/9xyTR4s85o7yX8TzWf3DVFrH7c1r20="
+    }
+}

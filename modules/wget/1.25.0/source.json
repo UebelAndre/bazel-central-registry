@@ -1,0 +1,17 @@
+{
+    "url": "https://ftp.gnu.org/gnu/wget/wget-1.25.0.tar.gz",
+    "mirror_urls": [
+        "https://ftpmirror.gnu.org/gnu/wget/wget-1.25.0.tar.gz",
+        "https://mirrors.kernel.org/gnu/wget/wget-1.25.0.tar.gz"
+    ],
+    "integrity": "sha256-dm5IQj55NZ6jHkHbnlwolnWUen/PLv3O23JqydDaN4Q=",
+    "strip_prefix": "wget-1.25.0",
+    "overlay": {
+        "BUILD.bazel": "sha256-pKhKFtDga6r8ZnRtAqRogkV/+hmxMwHs7FqOsDRxKMY=",
+        "MODULE.bazel": "sha256-eNUwdDgXvbCLXs6wDPqpDjhpsTSWH/mwmK0SA98CzvQ=",
+        "install_dirs.bzl": "sha256-6zvQ25GXRg1dEaBM3h+GrNuL4Ipm9p59AFNT0OV+l1Y=",
+        "testenv/BUILD.bazel": "sha256-8JZ+Daxx/zYf+frLBx/l3ObFgAtEbpChEHD09TQpcIU=",
+        "testenv/run_testenv.py": "sha256-kAthXaL2/jc7QLITzmyKT7weByw646z/LnOWBVOOWLU=",
+        "tests/BUILD.bazel": "sha256-G5qs1U7IZsIf5Ap356kguRO3jsb3Z1ITYc2ELabp5Ik="
+    }
+}

@@ -1,0 +1,10 @@
+{
+    "url": "https://www.tcpdump.org/release/libpcap-1.10.5.tar.xz",
+    "integrity": "sha256-hPqJrG0wMCjBxbdUq/93Ik9F7KCpTrGjT/CqnO7OOSU=",
+    "strip_prefix": "libpcap-1.10.5",
+    "overlay": {
+        "BUILD.bazel": "sha256-CMug27J/iI4dRPwQstpfie8ujgWzdJx3RbQDG/g//jw=",
+        "MODULE.bazel": "sha256-X4z61DlBQcvgNIoT7LbkVCpdtM40y8NJcbuqGnSFeeQ=",
+        "autoconf.bzl": "sha256-cQ3ZWSCT7i72dHTDugGYW8j5B7sfZzbX2cduLKFDnQI="
+    }
+}

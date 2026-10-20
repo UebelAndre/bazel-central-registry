@@ -1,0 +1,92 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load(":autoconf.bzl", "NO_WARNINGS", "autoconf_targets")
+
+# The targets of configure.ac and the Makefile.am files, declared by the generated
+# autoconf.bzl beside this file; this file is hand-written and kept as it is.  A target
+# added below is the module's own; one named like a generated target replaces it at the
+# next conversion.
+autoconf_targets()
+
+# The library's name under the previous hand-written overlay.
+alias(
+    name = "libpcap",
+    actual = ":pcap",
+    visibility = ["//visibility:public"],
+)
+
+# Replaces the generated `pcap`, identical but for the two Linux capture
+# modules.  configure.ac:2566-2649 adds pcap-usb-linux.c (usbmon, unless
+# --disable-usb) and pcap-netfilter-linux.c (when the nfnetlink headers
+# compile) to MODULE_C_SRC under `case "$host_os" in linux*)`, a condition
+# over the platform and a probe at once that the converter cannot turn into
+# one source list; the autoconf target defines PCAP_SUPPORT_LINUX_USBMON and
+# PCAP_SUPPORT_NETFILTER on Linux and pcap.c's capture_source_types then
+# references usb_findalldevs() and netfilter_findalldevs().
+cc_library(
+    name = "pcap",
+    srcs = [
+        "bison/grammar.c",
+        "bison/grammar.h",
+        "bpf_dump.c",
+        "bpf_filter.c",
+        "bpf_image.c",
+        "etherent.c",
+        "flex/scanner.c",
+        "flex/scanner.h",
+        "fmtutils.c",
+        "gencode.c",
+        "nametoaddr.c",
+        "optimize.c",
+        "pcap.c",
+        "pcap-common.c",
+        "pcap-util.c",
+        "savefile.c",
+        "sf-pcap.c",
+        "sf-pcapng.c",
+        ":pcap_conditional_srcs",
+    ] + select({
+        "@platforms//os:linux": [
+            "pcap-netfilter-linux.c",
+            "pcap-usb-linux.c",
+        ],
+        "//conditions:default": [],
+    }),
+    hdrs = [
+        "pcap.h",
+        "pcap-bpf.h",
+        "pcap-namedb.h",
+        "pcap/bluetooth.h",
+        "pcap/bpf.h",
+        "pcap/can_socketcan.h",
+        "pcap/compiler-tests.h",
+        "pcap/dlt.h",
+        "pcap/funcattrs.h",
+        "pcap/ipnet.h",
+        "pcap/namedb.h",
+        "pcap/nflog.h",
+        "pcap/pcap.h",
+        "pcap/pcap-inttypes.h",
+        "pcap/sll.h",
+        "pcap/socket.h",
+        "pcap/usb.h",
+        "pcap/vlan.h",
+    ],
+    copts = NO_WARNINGS,
+    implementation_deps = [":config_headers"],
+    # `.`: the public headers include each other by repository path (<pcap/funcattrs.h>),
+    # which `strip_include_prefix = "/"` alone serves only on Bazel 9.
+    includes = [
+        ".",
+        "bison",
+        "flex",
+        "pcap",
+    ],
+    local_defines = [
+        "HAVE_CONFIG_H",
+        "BUILDING_PCAP",
+        "pcap_EXPORTS",
+    ],
+    strip_include_prefix = "/",
+    visibility = ["//visibility:public"],
+    deps = [":pcap_conditional_srcs"],
+)

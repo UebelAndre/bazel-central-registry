@@ -1,0 +1,19 @@
+{
+    "url": "https://mirror.bazel.build/ftp.gnu.org/gnu/cpio/cpio-2.15.tar.gz",
+    "mirror_urls": [
+        "https://ftp.gnu.org/gnu/cpio/cpio-2.15.tar.gz",
+        "https://ftpmirror.gnu.org/gnu/cpio/cpio-2.15.tar.gz",
+        "https://mirrors.kernel.org/gnu/cpio/cpio-2.15.tar.gz"
+    ],
+    "integrity": "sha256-76UO+YMTfu/AoC/bUVCdYkteMpXJgKoSfO7kGDRVSZ4=",
+    "strip_prefix": "cpio-2.15",
+    "overlay": {
+        "BUILD.bazel": "sha256-pzeOprM+K+kaEybDOoOEZOaCYoGWPsSTFhitnhJe550=",
+        "MODULE.bazel": "sha256-TpIZxQdaGsQG8RICsAXelfG5fER9WOM1Z0rsiNea68Q=",
+        "autoconf.bzl": "sha256-4yC6eyKLEMPYQTBiLvG0UJHSe2Kk2v028Pg/la0V0nc=",
+        "rmt_command.bzl": "sha256-T8tgv6AX9Kf2q7Fn00xpxf7dYrjheioVOotnkQqgjYk=",
+        "tests/BUILD.bazel": "sha256-x71KTihHT+N2cmg3NCVZRu+QA2dAC0ddI5Mvpmxhm5Y=",
+        "tests/smoke_test.cc": "sha256-RSYQWWQGRcWUMfyRxtPAGmxQMYAtMswXzjarL+jJNsc=",
+        "tests/upstream_testsuite.sh": "sha256-95kyAadfSjQAX479XvFxyPNdSUuYdOaekGCAueHwagI="
+    }
+}

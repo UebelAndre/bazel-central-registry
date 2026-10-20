@@ -1,0 +1,15 @@
+load(":autoconf.bzl", "autoconf_targets")
+
+# The targets of configure.ac and the Makefile.am files, declared by the generated
+# autoconf.bzl beside this file; this file is hand-written and kept as it is.  A target
+# added below is the module's own; one named like a generated target replaces it at the
+# next conversion.
+autoconf_targets()
+
+# The `<readline/readline.h>` header set under the previous hand-written
+# overlay's name.
+alias(
+    name = "prefixed_readline_header",
+    actual = ":readline_prefixed_headers",
+    visibility = ["//visibility:public"],
+)

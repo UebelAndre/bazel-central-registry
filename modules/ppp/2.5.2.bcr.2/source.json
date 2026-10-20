@@ -1,0 +1,15 @@
+{
+    "url": "https://download.samba.org/pub/ppp/ppp-2.5.2.tar.gz",
+    "mirror_urls": [
+        "https://ftp.samba.org/pub/ppp/ppp-2.5.2.tar.gz",
+        "https://www.samba.org/ftp/ppp/ppp-2.5.2.tar.gz",
+        "https://deb.debian.org/debian/pool/main/p/ppp/ppp_2.5.2.orig.tar.gz"
+    ],
+    "integrity": "sha256-R9o1jeVKEMsQv2/yz5scA8DTVVUY9hguj3AbjlVzPLI=",
+    "strip_prefix": "ppp-2.5.2",
+    "overlay": {
+        "BUILD.bazel": "sha256-F++Xk5Kto+EVCm9/ep+FaJA9+sxu5+ZpHHj7iYGRT2A=",
+        "MODULE.bazel": "sha256-LgjkdsbJLw3JUOzScrlKOYAHh2dhWfaVHQHgnDF/poE=",
+        "autoconf.bzl": "sha256-uYvzqHS5R+7bW7ezCeX6c7KdLVaUcE7OKS080zI2jqw="
+    }
+}

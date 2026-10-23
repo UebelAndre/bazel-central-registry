@@ -1,0 +1,79 @@
+# This directory's CMakeLists.txt as Bazel targets, declared by the generated
+# cmake.bzl beside this file; this file is hand-written and kept as it is. A target
+# added below is the project's own; one named like a generated target replaces it
+# at the next conversion.
+
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load(":cmake.bzl", "cmake_list")
+
+package(default_package_metadata = [":package_metadata"])
+
+cmake_list()
+
+# Source/cmake_core.cmake: the codec library for the native ISA of each
+# platform, as the ASTCENC_ISA_NATIVE configuration selects it.
+ISA_DEFINES = select({
+    "@platforms//cpu:aarch64": [
+        "ASTCENC_NEON=1",
+        "ASTCENC_SVE=0",
+        "ASTCENC_SSE=0",
+        "ASTCENC_AVX=0",
+        "ASTCENC_POPCNT=0",
+        "ASTCENC_F16C=0",
+    ],
+    "@platforms//cpu:x86_64": [
+        "ASTCENC_NEON=0",
+        "ASTCENC_SVE=0",
+        "ASTCENC_SSE=20",
+        "ASTCENC_AVX=0",
+        "ASTCENC_POPCNT=0",
+        "ASTCENC_F16C=0",
+    ],
+    "//conditions:default": [
+        "ASTCENC_NEON=0",
+        "ASTCENC_SVE=0",
+        "ASTCENC_SSE=0",
+        "ASTCENC_AVX=0",
+        "ASTCENC_POPCNT=0",
+        "ASTCENC_F16C=0",
+    ],
+})
+
+cc_library(
+    name = "astcenc",
+    srcs = ["//Source:core_sources"],
+    hdrs = ["//Source:astcenc.h"],
+    defines = ISA_DEFINES + select({
+        ":ASTCENC_DECOMPRESSOR_on": ["ASTCENC_DECOMPRESSOR=1"],
+        "//conditions:default": [],
+    }) + select({
+        ":ASTCENC_DIAGNOSTICS_on": ["ASTCENC_DIAGNOSTICS=1"],
+        "//conditions:default": [],
+    }),
+    includes = ["Source"],
+    linkopts = select({
+        "@platforms//os:windows": [],
+        "//conditions:default": ["-lpthread"],
+    }),
+    visibility = ["//visibility:public"],
+)
+
+cc_library(
+    name = "astcenc-cli-thirdparty",
+    textual_hdrs = ["//Source:cli_textual_hdrs"],
+    visibility = ["//visibility:private"],
+)
+
+cc_binary(
+    name = "astcenc-cli",
+    srcs = [
+        "//Source:astcenccli_version_h",
+        "//Source:cli_sources",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":astcenc",
+        ":astcenc-cli-thirdparty",
+    ],
+)

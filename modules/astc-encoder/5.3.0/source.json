@@ -1,0 +1,13 @@
+{
+    "url": "https://github.com/ARM-software/astc-encoder/archive/refs/tags/5.3.0.tar.gz",
+    "integrity": "sha256-a9JI9GC5BXb5ClSZwPa414Wzrzg3vKuCYH2aO1u6d+I=",
+    "strip_prefix": "astc-encoder-5.3.0",
+    "overlay": {
+        "BUILD.bazel": "sha256-VJrLehN9c3ECV9prypSgsAmN6HGpvN6SZQAXX/2gN1A=",
+        "MODULE.bazel": "sha256-PLskdjuK77CF+StPLax1PF+LgN0riRZyUWVP6hoio9U=",
+        "Source/BUILD.bazel": "sha256-JhydMTMgbS9OE/se4WGvDLZ0kUkZejrwHVn9RsTliXY=",
+        "Source/cmake.bzl": "sha256-VWrDQqWdz8ayTjjDouzX68IVASx+MDOqTSRBGiwmpEg=",
+        "cmake.bzl": "sha256-mgoCRnlboavjmlOqJcKil9tCJCj/7hODMr9XXf+NPvE="
+    },
+    "patch_strip": 0
+}

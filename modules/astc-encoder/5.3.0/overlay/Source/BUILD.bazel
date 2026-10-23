@@ -1,0 +1,40 @@
+# This directory's CMakeLists.txt as Bazel targets, declared by the generated
+# cmake.bzl beside this file; this file is hand-written and kept as it is. A target
+# added below is the project's own; one named like a generated target replaces it
+# at the next conversion.
+
+load(":cmake.bzl", "cmake_list")
+
+cmake_list()
+
+# Source/cmake_core.cmake: the codec library sources and the command line tool's.
+filegroup(
+    name = "core_sources",
+    srcs = glob(
+        [
+            "astcenc_*.cpp",
+            "*.h",
+        ],
+        exclude = ["astcenc.h"],
+    ),
+    visibility = ["//:__pkg__"],
+)
+
+filegroup(
+    name = "cli_sources",
+    srcs = glob(["astcenccli_*.cpp"]),
+    visibility = ["//:__pkg__"],
+)
+
+exports_files(
+    ["astcenc.h"],
+    visibility = ["//:__pkg__"],
+)
+
+# The image loaders the command line tool includes textually: the wuffs PNG
+# decoder and the stb/tinyexr single-header libraries under ThirdParty/.
+filegroup(
+    name = "cli_textual_hdrs",
+    srcs = ["wuffs-v0.3.c"] + glob(["ThirdParty/*.h"]),
+    visibility = ["//:__pkg__"],
+)

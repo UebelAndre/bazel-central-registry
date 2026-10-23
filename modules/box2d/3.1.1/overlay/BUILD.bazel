@@ -1,0 +1,37 @@
+# This directory's CMakeLists.txt as Bazel targets, declared by the generated
+# cmake.bzl beside this file; this file is hand-written and kept as it is. A target
+# added below is the project's own; one named like a generated target replaces it
+# at the next conversion.
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load(":cmake.bzl", "cmake_list")
+
+package(default_package_metadata = [":package_metadata"])
+
+cmake_list()
+
+# src/CMakeLists.txt: add_library(box2d ${BOX2D_SOURCE_FILES} ${BOX2D_API_FILES})
+cc_library(
+    name = "box2d",
+    srcs = ["//src:sources"],
+    hdrs = glob(["include/box2d/*.h"]),
+    defines = select({
+        ":BOX2D_DISABLE_SIMD_on": ["BOX2D_DISABLE_SIMD"],
+        "//conditions:default": [],
+    }) + select({
+        ":BOX2D_AVX2_on": ["BOX2D_AVX2"],
+        "//conditions:default": [],
+    }) + select({
+        ":BOX2D_VALIDATE_on": ["BOX2D_VALIDATE"],
+        "//conditions:default": [],
+    }) + select({
+        ":BOX2D_PROFILE_on": ["BOX2D_PROFILE"],
+        "//conditions:default": [],
+    }),
+    includes = ["include"],
+    linkopts = select({
+        "@platforms//os:windows": [],
+        "//conditions:default": ["-lm"],
+    }),
+    visibility = ["//visibility:public"],
+)

@@ -1,0 +1,16 @@
+{
+    "homepage": "https://box2d.org",
+    "maintainers": [
+        {
+            "email": "github@uebelandre.com",
+            "name": "UebelAndre"
+        }
+    ],
+    "repository": [
+        "github:erincatto/box2d"
+    ],
+    "versions": [
+        "3.1.1"
+    ],
+    "yanked_versions": {}
+}

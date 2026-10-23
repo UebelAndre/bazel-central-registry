@@ -1,0 +1,15 @@
+{
+    "url": "https://github.com/erincatto/box2d/archive/refs/tags/v3.1.1.tar.gz",
+    "integrity": "sha256-+275FLUPQxLX2SGmAOq8EjGLs8VaC4wLkGCPpEiO8uQ=",
+    "strip_prefix": "box2d-3.1.1",
+    "overlay": {
+        "BUILD.bazel": "sha256-lifxihCsk7fNHCuiDHyvIWZXbBpz98nBBDkzqTddctM=",
+        "MODULE.bazel": "sha256-oy8TSO7QS6WpjagTpzad+gdXBnW2n/1xbKMSz8Nfm/s=",
+        "cmake.bzl": "sha256-P2s2X2vDCHNSvxVNQvk6dCTNCacx7v+8+bY7oAgJF7A=",
+        "samples/BUILD.bazel": "sha256-7xPv2iYacsq90hQcOeS8MwNaBJkatC9qTR/x2Dbms7A=",
+        "samples/cmake.bzl": "sha256-u8XjqncZhFfE552j8zSa+fLUPSrNPrI3OlOeVheaZ1o=",
+        "src/BUILD.bazel": "sha256-VGDvrL5u4sd3bmvkNA5N5+tf4u73syF6da5swNn8XlU=",
+        "src/cmake.bzl": "sha256-hlAArgQrkyNqbcFxHxOF+TGFyuAcE/fYjjp+stxIMG8="
+    },
+    "patch_strip": 0
+}

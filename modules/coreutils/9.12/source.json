@@ -1,0 +1,16 @@
+{
+    "url": "https://ftp.gnu.org/gnu/coreutils/coreutils-9.12.tar.xz",
+    "mirror_urls": [
+        "https://ftpmirror.gnu.org/gnu/coreutils/coreutils-9.12.tar.xz",
+        "https://mirrors.kernel.org/gnu/coreutils/coreutils-9.12.tar.xz"
+    ],
+    "integrity": "sha256-pIAZhVlzPps9qZnpBUOsb4iKLKpUTY1mTFofF+Uo4hA=",
+    "strip_prefix": "coreutils-9.12",
+    "overlay": {
+        "BUILD.bazel": "sha256-go9nYvb210KP/MNmIzzdVyFfnDyLwW5LF/Jbc84GRTY=",
+        "MODULE.bazel": "sha256-ItxXuyjPEi//GxTdGj/yviB9xoJIV5nu+k7zYJZfoCk=",
+        "autoconf.bzl": "sha256-HaOmRSy+j1rYtPwG03XkHZm7yCpmvP0TXwUvuQv3TyQ=",
+        "lib/_echo/gmp.in.h": "sha256-8BZ0VMyI6aHRmPCcEC8zkZQC0A7d4pPx9Bcbn+OYhFI=",
+        "src/version.c.in": "sha256-ok+NnvTjag3Liv/aSbzWmr8OcSVWJsjo7BSjhxJOqTM="
+    }
+}
